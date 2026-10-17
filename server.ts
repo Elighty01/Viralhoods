@@ -194,35 +194,70 @@ app.post('/api/gemini/transcribe', async (req: Request, res: Response) => {
   }
 });
 
-// 5. Image Creation with gemini-nano-banana-2.1
+// 5. Image Creation with gemini-3.1-flash-lite-image / gemini-nano-banana-2.1
 app.post('/api/gemini/generate-image', async (req: Request, res: Response) => {
   try {
     const ai = getAiClient();
     const { prompt, aspectRatio = '16:9' } = req.body;
     if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
-    const response = await ai.models.generateImages({
-      model: 'gemini-nano-banana-2.1',
-      prompt: `Editorial news illustration for Viralhoods: ${prompt}`,
-      config: {
-        numberOfImages: 1,
-        aspectRatio,
-      },
-    });
+    let imageBase64: string | null = null;
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite-image',
+        contents: {
+          parts: [{ text: `Editorial news illustration for Viralhoods: ${prompt}` }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio === '1:1' || aspectRatio === '9:16' ? aspectRatio : '16:9',
+          },
+        },
+      });
 
-    const image = response.generatedImages?.[0]?.image?.imageBytes;
-    if (!image) {
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData?.data) {
+            imageBase64 = part.inlineData.data;
+            break;
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('Primary image generation attempt fallback to nano-banana:', err?.message || err);
+      const response = await ai.models.generateContent({
+        model: 'gemini-nano-banana-2.1',
+        contents: {
+          parts: [{ text: `Editorial news illustration for Viralhoods: ${prompt}` }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: aspectRatio === '1:1' || aspectRatio === '9:16' ? aspectRatio : '16:9',
+          },
+        },
+      });
+      if (response.candidates?.[0]?.content?.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData?.data) {
+            imageBase64 = part.inlineData.data;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!imageBase64) {
       throw new Error('No image was returned by the model.');
     }
 
-    res.json({ imageBase64: image });
+    res.json({ imageBase64 });
   } catch (error: any) {
     console.error('Image generation error:', error);
     res.status(500).json({ error: error?.message || 'Image generation failed' });
   }
 });
 
-// 6. Video Generation with Veo 3 (veo-3.1-fast-generate-preview)
+// 6. Video Generation with Veo 3 (veo-3.1-lite-generate-preview)
 app.post('/api/gemini/generate-video', async (req: Request, res: Response) => {
   try {
     const ai = getAiClient();
@@ -230,9 +265,10 @@ app.post('/api/gemini/generate-video', async (req: Request, res: Response) => {
     if (!prompt) return res.status(400).json({ error: 'Prompt is required.' });
 
     const params: any = {
-      model: 'veo-3.1-fast-generate-preview',
+      model: 'veo-3.1-lite-generate-preview',
       prompt: `Cinematic news broadcast clip: ${prompt}`,
       config: {
+        numberOfVideos: 1,
         aspectRatio: aspectRatio === '9:16' ? '9:16' : '16:9',
       },
     };
@@ -240,6 +276,7 @@ app.post('/api/gemini/generate-video', async (req: Request, res: Response) => {
     if (imageBase64) {
       params.image = {
         imageBytes: imageBase64,
+        mimeType: 'image/png',
       };
     }
 
