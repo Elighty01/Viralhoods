@@ -101,6 +101,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // GitHub Actions Workflow Dispatcher State
   const [repoInput, setRepoInput] = useState('');
   const [tokenInput, setTokenInput] = useState('');
+  const [selectedWorkflow, setSelectedWorkflow] = useState<'deploy.yml' | 'news.yml'>('deploy.yml');
   const [githubDispatchMsg, setGithubDispatchMsg] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
 
@@ -351,19 +352,20 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const data = await info.json();
       const br = data.default_branch || 'main';
 
-      const res = await fetch(`${api}/actions/workflows/news.yml/dispatches`, {
+      const res = await fetch(`${api}/actions/workflows/${selectedWorkflow}/dispatches`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ref: br }),
       });
 
       if (res.status === 204) {
-        setGithubDispatchMsg('Workflow dispatched successfully! GitHub Actions is scraping and deploying at 12 AM UTC routine.');
+        const workflowName = selectedWorkflow === 'deploy.yml' ? 'Deploy to GitHub Pages' : 'Automated News Scraper';
+        setGithubDispatchMsg(`✓ "${workflowName}" dispatched successfully! Check the Actions tab in your repository.`);
       } else {
-        setGithubDispatchMsg(`GitHub status: ${res.status}`);
+        setGithubDispatchMsg(`GitHub responded with status: ${res.status}`);
       }
     } catch (e: any) {
-      setGithubDispatchMsg(`Dispatch error: ${e?.message || 'Network failed'}`);
+      setGithubDispatchMsg(`Dispatch error: ${e?.message || 'Network request failed'}`);
     } finally {
       setIsDispatching(false);
     }
@@ -1462,7 +1464,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             If you want to dispatch the GitHub Action workflow immediately from your browser:
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
             <div>
               <label htmlFor="repo-input" style={{ fontSize: '0.84rem', fontWeight: 700, display: 'block', marginBottom: '6px' }}>
                 GitHub Repository
@@ -1490,6 +1492,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 onChange={(e) => setTokenInput(e.target.value)}
               />
             </div>
+
+            <div>
+              <label htmlFor="workflow-select" style={{ fontSize: '0.84rem', fontWeight: 700, display: 'block', marginBottom: '6px' }}>
+                Select Workflow to Run
+              </label>
+              <select
+                id="workflow-select"
+                className="form-input"
+                value={selectedWorkflow}
+                onChange={(e) => setSelectedWorkflow(e.target.value as 'deploy.yml' | 'news.yml')}
+                style={{ cursor: 'pointer' }}
+              >
+                <option value="deploy.yml">🚀 Deploy to GitHub Pages (deploy.yml)</option>
+                <option value="news.yml">📰 Run Automated News Scraper (news.yml)</option>
+              </select>
+            </div>
           </div>
 
           {githubDispatchMsg && (
@@ -1508,15 +1526,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           )}
 
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={handleRunGitHubWorkflow}
-            disabled={isDispatching}
-            style={{ padding: '10px 20px', fontSize: '0.92rem' }}
-          >
-            {isDispatching ? 'Dispatching...' : 'Dispatch GitHub Action Workflow'}
-          </button>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '24px' }}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={handleRunGitHubWorkflow}
+              disabled={isDispatching}
+              style={{ padding: '10px 20px', fontSize: '0.92rem' }}
+            >
+              {isDispatching ? 'Dispatching...' : `Dispatch ${selectedWorkflow === 'deploy.yml' ? 'Pages Deploy' : 'News Scrape'}`}
+            </button>
+          </div>
+
+          <div style={{ padding: '14px 18px', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}>
+            <h4 style={{ margin: '0 0 8px', fontSize: '0.9rem', fontWeight: 700 }}>
+              Direct Git Terminal Publishing
+            </h4>
+            <p style={{ margin: '0 0 8px', fontSize: '0.82rem', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+              The local repository has been initialized with the <code>main</code> branch and origin remote. To sync and push code directly from your terminal:
+            </p>
+            <pre style={{ margin: 0, padding: '10px 12px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', overflowX: 'auto', border: '1px solid var(--border-color)', fontFamily: 'monospace' }}>
+{`git remote -v
+git add .
+git commit -m "Update Viralhoods"
+git push -u origin main`}
+            </pre>
+          </div>
         </div>
       )}
     </main>
