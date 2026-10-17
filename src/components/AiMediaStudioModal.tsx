@@ -52,6 +52,8 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
   const [mapResult, setMapResult] = useState<string | null>(null);
   const [isMapLoading, setIsMapLoading] = useState(false);
 
+  const [statusNotice, setStatusNotice] = useState<{ type: 'success' | 'info' | 'error'; message: string } | null>(null);
+
   if (!isOpen) return null;
 
   // Member Protection: Feature is exclusive to signed-up members
@@ -178,6 +180,7 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     if (!videoPrompt.trim() || isVideoLoading) return;
     setIsVideoLoading(true);
     setGeneratedVideoUri(null);
+    setStatusNotice(null);
 
     try {
       const res = await fetch('/api/gemini/generate-video', {
@@ -192,11 +195,21 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
       const data = await res.json();
       if (data.videoUri) {
         setGeneratedVideoUri(data.videoUri);
+        setStatusNotice({
+          type: 'success',
+          message: data.message || 'Cinematic video simulation rendered successfully.',
+        });
       } else {
-        alert('Video generation completed. Ready for preview.');
+        setStatusNotice({
+          type: 'info',
+          message: 'Video rendering queued. Ready for preview.',
+        });
       }
     } catch (err: any) {
-      alert(`Video generation: ${err?.message || 'Error occurred'}`);
+      setStatusNotice({
+        type: 'error',
+        message: `Video generation: ${err?.message || 'Unexpected server error'}`,
+      });
     } finally {
       setIsVideoLoading(false);
     }
@@ -220,6 +233,7 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     if (!imagePrompt.trim() || isImageLoading) return;
     setIsImageLoading(true);
     setGeneratedImage(null);
+    setStatusNotice(null);
 
     try {
       const res = await fetch('/api/gemini/generate-image', {
@@ -232,12 +246,20 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
       });
       const data = await res.json();
       if (data.imageBase64) {
-        setGeneratedImage(`data:image/png;base64,${data.imageBase64}`);
+        const mime = data.isSvg ? 'image/svg+xml' : 'image/png';
+        setGeneratedImage(`data:${mime};base64,${data.imageBase64}`);
+        setStatusNotice({
+          type: 'success',
+          message: data.message || 'Visual illustration synthesized successfully.',
+        });
       } else {
         throw new Error(data.error || 'Failed to render image.');
       }
     } catch (err: any) {
-      alert(`Image generation: ${err?.message || 'Error occurred'}`);
+      setStatusNotice({
+        type: 'error',
+        message: `Image generation: ${err?.message || 'Unexpected server error'}`,
+      });
     } finally {
       setIsImageLoading(false);
     }
@@ -249,6 +271,7 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     if (!musicPrompt.trim() || isMusicLoading) return;
     setIsMusicLoading(true);
     setMusicResult(null);
+    setStatusNotice(null);
 
     try {
       const res = await fetch('/api/gemini/generate-music', {
@@ -257,9 +280,16 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
         body: JSON.stringify({ prompt: musicPrompt }),
       });
       const data = await res.json();
-      setMusicResult(data.audio || 'Generated 30-second broadcast podcast theme.');
+      setMusicResult(data.audio || 'Generated broadcast podcast soundtrack theme.');
+      setStatusNotice({
+        type: 'success',
+        message: 'Audio theme generated successfully.',
+      });
     } catch (err: any) {
-      alert(`Music generation: ${err?.message || 'Error occurred'}`);
+      setStatusNotice({
+        type: 'error',
+        message: `Music generation: ${err?.message || 'Audio generation error'}`,
+      });
     } finally {
       setIsMusicLoading(false);
     }
@@ -271,6 +301,7 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     if (!mapQuery.trim() || isMapLoading) return;
     setIsMapLoading(true);
     setMapResult(null);
+    setStatusNotice(null);
 
     try {
       const res = await fetch('/api/gemini/maps-grounding', {
@@ -280,8 +311,15 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
       });
       const data = await res.json();
       setMapResult(data.text || 'Geographic grounding complete.');
+      setStatusNotice({
+        type: 'success',
+        message: 'Geospatial intelligence retrieved.',
+      });
     } catch (err: any) {
-      alert(`Maps grounding: ${err?.message || 'Error occurred'}`);
+      setStatusNotice({
+        type: 'error',
+        message: `Maps grounding: ${err?.message || 'Geospatial query error'}`,
+      });
     } finally {
       setIsMapLoading(false);
     }
@@ -361,6 +399,58 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
             Maps Grounding
           </button>
         </div>
+
+        {statusNotice && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: '16px',
+              fontSize: '0.86rem',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '10px',
+              background:
+                statusNotice.type === 'success'
+                  ? 'rgba(16, 185, 129, 0.12)'
+                  : statusNotice.type === 'error'
+                  ? 'rgba(239, 68, 68, 0.12)'
+                  : 'rgba(2, 132, 199, 0.12)',
+              border: `1px solid ${
+                statusNotice.type === 'success'
+                  ? 'rgba(16, 185, 129, 0.35)'
+                  : statusNotice.type === 'error'
+                  ? 'rgba(239, 68, 68, 0.35)'
+                  : 'rgba(2, 132, 199, 0.35)'
+              }`,
+              color:
+                statusNotice.type === 'success'
+                  ? '#10b981'
+                  : statusNotice.type === 'error'
+                  ? '#ef4444'
+                  : 'var(--blue)',
+            }}
+          >
+            <span>{statusNotice.message}</span>
+            <button
+              type="button"
+              onClick={() => setStatusNotice(null)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'inherit',
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+              }}
+              aria-label="Dismiss notice"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* TAB 1: VEO 3 VIDEO GENERATOR */}
         {activeTab === 'video' && (

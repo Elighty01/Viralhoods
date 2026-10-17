@@ -49,7 +49,7 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-flash-lite'>('gemini-3.1-flash-lite');
+  const [selectedModel, setSelectedModel] = useState<'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-flash-lite'>('gemini-3.8-flash');
   const [useSearchGrounding, setUseSearchGrounding] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveVoice, setIsLiveVoice] = useState(false);
