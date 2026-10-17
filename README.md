@@ -21,8 +21,16 @@ npm install
 npm run dev
 
 # Build production bundle
-npm run build
 ```
+
+## Deploying to GitHub Pages
+
+Viralhoods includes an automated GitHub Actions deployment workflow (`.github/workflows/deploy.yml`).
+
+To enable seamless deployments on `https://elighty01.github.io/Viralhoods/`:
+1. In your GitHub repository, navigate to **Settings** &rarr; **Pages**.
+2. Under **Build and deployment** &rarr; **Source**, select **GitHub Actions** (instead of "Deploy from a branch").
+3. Push changes or run the "Deploy to GitHub Pages" action from the **Actions** tab. GitHub will automatically build and publish the app!
 
 ## Structure
 

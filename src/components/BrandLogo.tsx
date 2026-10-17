@@ -47,7 +47,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         }}
       >
         <img
-          src="/logo.svg"
+          src={`${import.meta.env.BASE_URL || './'}logo.svg`}
           alt="Viralhoods Official Logo"
           width={dimensions.width}
           height={dimensions.height}

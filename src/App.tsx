@@ -171,7 +171,9 @@ export const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/data/news.json?t=${Date.now()}`);
+      const base = (import.meta.env.BASE_URL || './').replace(/\/$/, '');
+      const newsUrl = `${base}/data/news.json?t=${Date.now()}`;
+      const response = await fetch(newsUrl);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
