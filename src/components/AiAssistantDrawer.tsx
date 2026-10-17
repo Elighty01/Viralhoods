@@ -12,7 +12,9 @@ import {
   Check,
   Bot,
   User as UserIcon,
+  Lock,
 } from 'lucide-react';
+import { User } from '../types';
 
 interface ChatMessage {
   id: string;
@@ -26,12 +28,16 @@ interface AiAssistantDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   activeSector?: string;
+  currentUser: User | null;
+  onOpenAuth: (message?: string) => void;
 }
 
 export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
   isOpen,
   onClose,
   activeSector = 'All',
+  currentUser,
+  onOpenAuth,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -43,7 +49,7 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
   ]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-flash-lite'>('gemini-3.8-flash');
+  const [selectedModel, setSelectedModel] = useState<'gemini-3.8-flash' | 'gemini-4-argon' | 'gemini-3.1-flash-lite'>('gemini-3.1-flash-lite');
   const [useSearchGrounding, setUseSearchGrounding] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [isLiveVoice, setIsLiveVoice] = useState(false);
@@ -58,6 +64,107 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
   }, [messages]);
 
   if (!isOpen) return null;
+
+  // Member Protection: Feature is exclusive to signed-up members
+  if (!currentUser) {
+    return (
+      <div className="drawer-overlay" onClick={onClose} role="dialog" aria-modal="true">
+        <aside
+          className="drawer-panel"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            padding: '24px',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(2,132,199,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Sparkles size={18} color="var(--blue)" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>AI Intelligence Assistant</h3>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--sun)', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Member Access Required
+                  </span>
+                </div>
+              </div>
+              <button className="close-btn" onClick={onClose}>
+                <X size={20} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                textAlign: 'center',
+                padding: '32px 16px',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-lg)',
+                margin: '20px 0',
+              }}
+            >
+              <div
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '50%',
+                  background: 'rgba(245, 158, 11, 0.12)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px',
+                }}
+              >
+                <Lock size={28} color="var(--sun)" />
+              </div>
+              <h4 style={{ margin: '0 0 8px', fontSize: '1.25rem', fontWeight: 800 }}>Members Only Feature</h4>
+              <p style={{ margin: '0 0 20px', color: 'var(--fg-muted)', fontSize: '0.88rem', lineHeight: 1.5 }}>
+                The AI Intelligence Assistant is reserved exclusively for registered Viralhoods members. Create a free account or log in to unlock real-time news intelligence, live search grounding, and audio briefings.
+              </p>
+
+              <div style={{ textAlign: 'left', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '14px', marginBottom: '20px' }}>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '8px', color: 'var(--blue)' }}>
+                  Included with Free Membership:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.82rem', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
+                  <li>Gemini 3.8 Flash real-time intelligence & search grounding</li>
+                  <li>Live voice speech synthesis & interactive briefings</li>
+                  <li>Sector breakdown for all 10 monitored industries</li>
+                  <li>Instant verified fact-checking with live citations</li>
+                </ul>
+              </div>
+
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  onClose();
+                  onOpenAuth('Please create an account or sign in to access the AI Intelligence Assistant.');
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: 'var(--radius-md)',
+                  fontWeight: 800,
+                  fontSize: '0.92rem',
+                }}
+              >
+                Sign In or Register (Free)
+              </button>
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'center', fontSize: '0.78rem', color: 'var(--fg-muted)' }}>
+            Already have an account? Sign in with your Gmail or username.
+          </div>
+        </aside>
+      </div>
+    );
+  }
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
@@ -75,7 +182,7 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
     setIsLoading(true);
 
     try {
-      const history = [...messages, userMsg].map((m) => ({
+      const history = [...messages.filter((m) => m.id !== 'init'), userMsg].map((m) => ({
         role: m.role === 'user' ? 'user' : 'model',
         text: m.text,
       }));

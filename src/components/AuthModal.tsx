@@ -1,44 +1,74 @@
 import React, { useState } from 'react';
-import { User, OWNER_EMAIL } from '../types';
-import { setCurrentUser, isOwnerEmail } from '../utils/storage';
+import { User, ADMIN_MASTER_PASSWORD } from '../types';
+import {
+  setCurrentUser,
+  registerAccount,
+  verifyAccountCredentials,
+  verifyAdminPassword,
+} from '../utils/storage';
 import { auth, googleProvider, signInWithPopup, db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { X, Mail, CheckCircle, ShieldCheck } from 'lucide-react';
+import { X, Mail, CheckCircle, AlertCircle, UserPlus, LogIn, Lock, User as UserIcon, Sparkles } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: User) => void;
+  initialPromptMessage?: string;
+  initialTab?: 'signin' | 'register';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  initialPromptMessage,
+  initialTab = 'signin',
 }) => {
-  const [email, setEmail] = useState('');
+  const [tab, setTab] = useState<'signin' | 'register'>(initialTab);
+
+  // Form Fields
+  const [identifier, setIdentifier] = useState(''); // username or gmail/email
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
+
+  // UI status
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  // Sync to Firestore subscribers collection
-  const syncToFirestore = async (userEmail: string) => {
+  // Sync subscriber or account to Firestore
+  const syncToFirestore = async (userEmailOrUsername: string, isAccount = false) => {
     try {
-      const subRef = doc(db, 'subscribers', userEmail.replace(/[^a-zA-Z0-9]/g, '_'));
+      const cleanKey = userEmailOrUsername.replace(/[^a-zA-Z0-9]/g, '_');
+      if (userEmailOrUsername.includes('@')) {
+        const subRef = doc(db, 'subscribers', cleanKey);
+        await setDoc(
+          subRef,
+          {
+            email: userEmailOrUsername,
+            subscribedAt: new Date().toISOString(),
+            source: isAccount ? 'registration' : 'firebase_auth',
+          },
+          { merge: true }
+        );
+      }
+      const memberRef = doc(db, 'members', cleanKey);
       await setDoc(
-        subRef,
+        memberRef,
         {
-          email: userEmail,
-          subscribedAt: new Date().toISOString(),
-          source: 'firebase_auth',
+          identifier: userEmailOrUsername,
+          lastActive: new Date().toISOString(),
+          type: isAccount ? 'password_account' : 'google_auth',
         },
         { merge: true }
       );
     } catch (err) {
-      console.warn('Firestore subscription sync error:', err);
+      console.warn('Firestore sync note:', err);
     }
   };
 
@@ -53,30 +83,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       const displayName = googleUser.displayName || cleanEmail.split('@')[0];
 
       if (!cleanEmail) {
-        throw new Error('Google account has no associated email.');
+        throw new Error('Google account has no associated email address.');
       }
 
       await syncToFirestore(cleanEmail);
-      const user = setCurrentUser(cleanEmail, displayName);
+      const user = setCurrentUser(cleanEmail, displayName, false);
 
-      if (user.isAdmin) {
-        setStatusMessage(`Welcome Administrator Yussuf Elijah! Admin unlocked.`);
-      } else {
-        setStatusMessage(`Welcome ${displayName}! You are signed in & subscribed.`);
-      }
-
+      setStatusMessage(`Welcome ${displayName}! You are signed in.`);
       setTimeout(() => {
         onSuccess(user);
         onClose();
-      }, 1000);
+      }, 750);
     } catch (err: any) {
-      console.warn('Google sign in error:', err);
-      // Fallback message if popup was cancelled or blocked in iframe
+      console.warn('Google sign in note:', err);
       setIsError(true);
       setStatusMessage(
         err?.code === 'auth/popup-closed-by-user'
-          ? 'Sign in popup was closed. You can also sign in with email below.'
-          : 'Google sign in unavailable in this browser preview. Please use email sign in below.'
+          ? 'Sign in window closed. You can also sign in with your username or password.'
+          : 'Google sign in unavailable in this browser environment. Please use username & password below.'
       );
     } finally {
       setIsLoadingGoogle(false);
@@ -85,43 +109,96 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanEmail = email.trim();
+    setIsSubmitting(true);
+    setIsError(false);
+    setStatusMessage(null);
 
-    if (!cleanEmail || !cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+    const cleanId = identifier.trim();
+
+    if (!cleanId) {
       setIsError(true);
-      setStatusMessage('Please enter a valid email address.');
+      setStatusMessage('Please enter your Gmail or username.');
+      setIsSubmitting(false);
       return;
     }
 
-    await syncToFirestore(cleanEmail);
-    const user = setCurrentUser(cleanEmail, name);
-    setIsError(false);
-
-    if (user.isAdmin) {
-      setStatusMessage(`Welcome Administrator Yussuf Elijah! Admin dashboard unlocked.`);
-    } else {
-      setStatusMessage(`Welcome! You are now subscribed to the Viralhoods Daily Briefing.`);
+    if (!password) {
+      setIsError(true);
+      setStatusMessage('Please enter your password.');
+      setIsSubmitting(false);
+      return;
     }
 
+    if (tab === 'register') {
+      // REGISTRATION FLOW
+      if (password.length < 6) {
+        setIsError(true);
+        setStatusMessage('Password must be at least 6 characters.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (password !== confirmPassword) {
+        setIsError(true);
+        setStatusMessage('Passwords do not match. Please re-enter.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const regResult = registerAccount(cleanId, password, name);
+      if (!regResult.success) {
+        setIsError(true);
+        setStatusMessage(regResult.error || 'Failed to create account.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      await syncToFirestore(cleanId, true);
+      const isAdmin = verifyAdminPassword(password);
+      const user = setCurrentUser(cleanId, name || cleanId.split('@')[0], isAdmin);
+
+      setStatusMessage('Account created successfully! Welcome to Viralhoods.');
+      setTimeout(() => {
+        onSuccess(user);
+        onClose();
+      }, 800);
+      setIsSubmitting(false);
+      return;
+    }
+
+    // SIGN IN FLOW: Member MUST have an account first!
+    const verifyResult = verifyAccountCredentials(cleanId, password);
+    if (!verifyResult.success) {
+      setIsError(true);
+      setStatusMessage(verifyResult.error || 'Unable to sign in.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    const acc = verifyResult.account!;
+    const isAdmin = Boolean(acc.isAdmin || verifyAdminPassword(password));
+    await syncToFirestore(cleanId, false);
+    const user = setCurrentUser(cleanId, acc.name || cleanId.split('@')[0], isAdmin);
+
+    setStatusMessage(`Welcome back${user.name ? ', ' + user.name : ''}!`);
     setTimeout(() => {
       onSuccess(user);
       onClose();
-    }, 1000);
-  };
-
-  const handleQuickAdminLogin = () => {
-    setEmail(OWNER_EMAIL);
-    setName('Yussuf Elijah');
+    }, 750);
+    setIsSubmitting(false);
   };
 
   return (
     <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
-      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px' }}>
         <div className="modal-header">
           <div>
-            <h3>Sign in to Viralhoods</h3>
+            <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0 }}>
+              {tab === 'signin' ? 'Sign In to Viralhoods' : 'Create an Account'}
+            </h3>
             <p style={{ margin: '4px 0 0', fontSize: '0.86rem', color: 'var(--fg-muted)' }}>
-              Join readers worldwide with Firebase Authentication & Firestore sync
+              {tab === 'signin'
+                ? 'Members must have an account first before signing in.'
+                : 'Join Viralhoods with your Gmail or username and password.'}
             </p>
           </div>
           <button className="close-btn" onClick={onClose} aria-label="Close dialog">
@@ -129,7 +206,88 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </div>
 
-        {/* Google Sign-in Button */}
+        {initialPromptMessage && (
+          <div
+            style={{
+              background: 'rgba(2, 132, 199, 0.08)',
+              border: '1px solid var(--blue)',
+              borderRadius: 'var(--radius-md)',
+              padding: '10px 14px',
+              margin: '14px 0 16px',
+              fontSize: '0.86rem',
+              color: 'var(--blue)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <Sparkles size={16} style={{ flexShrink: 0 }} />
+            <span>{initialPromptMessage}</span>
+          </div>
+        )}
+
+        {/* Auth Tabs */}
+        <div
+          style={{
+            display: 'flex',
+            borderBottom: '1px solid var(--line)',
+            marginBottom: '18px',
+            gap: '8px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setTab('signin');
+              setStatusMessage(null);
+            }}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              border: 'none',
+              background: 'transparent',
+              borderBottom: tab === 'signin' ? '2px solid var(--blue)' : '2px solid transparent',
+              color: tab === 'signin' ? 'var(--fg)' : 'var(--fg-muted)',
+              fontWeight: tab === 'signin' ? 800 : 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              fontSize: '0.92rem',
+            }}
+          >
+            <LogIn size={16} /> Sign In
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTab('register');
+              setStatusMessage(null);
+            }}
+            style={{
+              flex: 1,
+              padding: '10px 14px',
+              border: 'none',
+              background: 'transparent',
+              borderBottom: tab === 'register' ? '2px solid var(--blue)' : '2px solid transparent',
+              color: tab === 'register' ? 'var(--fg)' : 'var(--fg-muted)',
+              fontWeight: tab === 'register' ? 800 : 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              fontSize: '0.92rem',
+            }}
+          >
+            <UserPlus size={16} /> Create Account
+          </button>
+        </div>
+
+        {/* Google Continue Button */}
         <button
           type="button"
           onClick={handleGoogleSignIn}
@@ -146,9 +304,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             background: 'var(--bg-subtle)',
             color: 'var(--fg)',
             fontWeight: 700,
-            fontSize: '0.94rem',
+            fontSize: '0.92rem',
             cursor: 'pointer',
-            marginBottom: '18px',
+            marginBottom: '16px',
             transition: 'background 0.15s ease',
           }}
         >
@@ -178,61 +336,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
-            margin: '14px 0 18px',
+            margin: '12px 0 16px',
             color: 'var(--fg-muted)',
-            fontSize: '0.82rem',
+            fontSize: '0.8rem',
           }}
         >
           <div style={{ flex: 1, height: '1px', background: 'var(--line)' }} />
-          <span>OR SIGN IN WITH EMAIL</span>
+          <span>OR USE ACCOUNT CREDENTIALS</span>
           <div style={{ flex: 1, height: '1px', background: 'var(--line)' }} />
         </div>
 
         <form onSubmit={handleSubmit}>
+          {tab === 'register' && (
+            <div className="form-group">
+              <label htmlFor="auth-name">Your Full Name (Optional)</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="auth-name"
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Alex Morgan"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="form-group">
-            <label htmlFor="auth-email">Email Address</label>
+            <label htmlFor="auth-id">Gmail or Username</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                id="auth-id"
+                type="text"
+                className="form-input"
+                placeholder={tab === 'register' ? 'user@gmail.com or username' : 'Enter your Gmail or username'}
+                required
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="auth-password">Password</label>
             <input
-              id="auth-email"
-              type="email"
+              id="auth-password"
+              type="password"
               className="form-input"
-              placeholder="you@domain.com"
+              placeholder="••••••••"
               required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
           </div>
 
-          <div className="form-group">
-            <label htmlFor="auth-name">Your Name (Optional)</label>
-            <input
-              id="auth-name"
-              type="text"
-              className="form-input"
-              placeholder="e.g. Alex Morgan"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-
-          <div
-            style={{
-              padding: '12px 14px',
-              background: 'var(--bg-subtle)',
-              borderRadius: 'var(--radius-md)',
-              fontSize: '0.84rem',
-              color: 'var(--fg-muted)',
-              marginBottom: '18px',
-              border: '1px solid var(--line)',
-              display: 'flex',
-              gap: '10px',
-              alignItems: 'flex-start',
-            }}
-          >
-            <Mail size={18} style={{ color: 'var(--blue)', flexShrink: 0, marginTop: '2px' }} />
-            <span>
-              <strong>Automatic Newsletter Subscription:</strong> Signing in automatically enrolls your email in the free Viralhoods Daily Briefing. You can unsubscribe at any time.
-            </span>
-          </div>
+          {tab === 'register' && (
+            <div className="form-group">
+              <label htmlFor="auth-confirm-password">Confirm Password</label>
+              <input
+                id="auth-confirm-password"
+                type="password"
+                className="form-input"
+                placeholder="••••••••"
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+          )}
 
           {statusMessage && (
             <div
@@ -247,47 +419,103 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 gap: '8px',
                 background: isError ? '#fee2e2' : 'var(--blue-tint)',
                 color: isError ? '#b91c1c' : 'var(--blue)',
+                lineHeight: 1.4,
               }}
             >
-              {isError ? <X size={16} /> : <CheckCircle size={16} />}
-              {statusMessage}
+              {isError ? <AlertCircle size={18} style={{ flexShrink: 0 }} /> : <CheckCircle size={18} style={{ flexShrink: 0 }} />}
+              <div>
+                {statusMessage}
+                {isError && tab === 'signin' && statusMessage.includes('create an account first') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab('register');
+                      setStatusMessage(null);
+                    }}
+                    style={{
+                      display: 'block',
+                      marginTop: '4px',
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--blue)',
+                      fontWeight: 800,
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    Click here to create an account now →
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
-          <button type="submit" className="btn-primary">
-            Sign In & Subscribe
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={isSubmitting}
+            style={{ width: '100%', padding: '12px', fontSize: '0.96rem' }}
+          >
+            {isSubmitting
+              ? 'Processing...'
+              : tab === 'signin'
+              ? 'Sign In'
+              : 'Create Account & Sign In'}
           </button>
         </form>
 
-        {/* Admin Login Helper hint for site owner */}
         <div
           style={{
-            marginTop: '20px',
-            paddingTop: '16px',
-            borderTop: '1px dashed var(--line)',
-            fontSize: '0.82rem',
+            marginTop: '16px',
             textAlign: 'center',
+            fontSize: '0.84rem',
             color: 'var(--fg-muted)',
           }}
         >
-          <span>Site Administrator? </span>
-          <button
-            type="button"
-            onClick={handleQuickAdminLogin}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--blue)',
-              fontWeight: 700,
-              cursor: 'pointer',
-              padding: '0 4px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-            }}
-          >
-            <ShieldCheck size={14} /> Fill {OWNER_EMAIL}
-          </button>
+          {tab === 'signin' ? (
+            <span>
+              Don't have an account yet?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('register');
+                  setStatusMessage(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--blue)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                Create an account first
+              </button>
+            </span>
+          ) : (
+            <span>
+              Already registered?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('signin');
+                  setStatusMessage(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--blue)',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                Sign in here
+              </button>
+            </span>
+          )}
         </div>
       </div>
     </div>

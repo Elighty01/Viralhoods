@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "tsc && vite build && cp -r dist/assets . && mkdir -p docs && cp -r dist/* docs/ && cp public/logo.svg . && cp public/logo-horizontal.svg .",
+    "lint": "tsc --noEmit",
     "start": "tsx server.ts",
     "preview": "vite preview --port 3000"
   },
@@ -16,6 +17,7 @@
     "lucide-react": "^1.59.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "rss-parser": "^3.13.0",
     "tsx": "^4.23.15"
   },
   "devDependencies": {

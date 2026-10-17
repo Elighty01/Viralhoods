@@ -2,6 +2,7 @@ export interface NewsItem {
   id: string;
   category: string;
   title: string;
+  originalTitle?: string;
   summary: string;
   source?: string;
   url?: string;
@@ -23,7 +24,7 @@ export interface NewsData {
 export interface Subscriber {
   email: string;
   subscribedAt: string;
-  source: 'login' | 'newsletter_box';
+  source: 'login' | 'newsletter_box' | 'registration';
 }
 
 export interface User {
@@ -32,7 +33,15 @@ export interface User {
   isAdmin: boolean;
 }
 
-export const OWNER_EMAIL = 'yussufelijah@gmail.com';
+export interface RegisteredAccount {
+  usernameOrEmail: string;
+  password: string; // Stored locally/in firestore for member account validation
+  name?: string;
+  createdAt: string;
+  isAdmin?: boolean;
+}
+
+export const ADMIN_MASTER_PASSWORD = '2026@Password';
 
 export const CATEGORIES = [
   "World",

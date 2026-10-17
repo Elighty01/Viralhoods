@@ -10,7 +10,9 @@ import { AuthModal } from './components/AuthModal';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { AiMediaStudioModal } from './components/AiMediaStudioModal';
 import { NewsData, NewsItem, CATEGORIES, User } from './types';
-import { auth, onAuthStateChanged, fbSignOut } from './firebase';
+import { EntertainmentSubpage } from './components/EntertainmentHub';
+import { auth, onAuthStateChanged, fbSignOut, db } from './firebase';
+import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
 import {
   getCurrentUser,
   setCurrentUser as persistUser,
@@ -40,6 +42,10 @@ export const App: React.FC = () => {
   // User auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [authPromptMessage, setAuthPromptMessage] = useState<string | undefined>(undefined);
+
+  // Entertainment Subpage State ('news' | 'videos' | 'music' | 'movies' | 'novels')
+  const [entertainmentSubpage, setEntertainmentSubpage] = useState<EntertainmentSubpage>('news');
 
   // AI Drawers and Studio Modals
   const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
@@ -140,6 +146,23 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Check for Entertainment and Entertainment subpages
+    if (rawHash.toLowerCase().startsWith('entertainment')) {
+      setView('feed');
+      setShowOnlyBookmarks(false);
+      setCurrentCategory('Entertainment');
+      const parts = rawHash.split('/');
+      if (parts[1]) {
+        const sub = parts[1].toLowerCase();
+        if (['videos', 'music', 'movies', 'novels', 'news'].includes(sub)) {
+          setEntertainmentSubpage(sub as any);
+        }
+      } else {
+        setEntertainmentSubpage('news');
+      }
+      return;
+    }
+
     // Otherwise it's feed view
     setView('feed');
     setShowOnlyBookmarks(false);
@@ -166,24 +189,54 @@ export const App: React.FC = () => {
     };
   }, [handleHashChange]);
 
-  // Fetch latest data from /data/news.json
+  // Fetch latest data from /data/news.json & Firestore database
   const fetchNews = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    let loadedItems: NewsItem[] = [];
+    let updatedTime = new Date().toISOString();
+
     try {
       const base = (import.meta.env.BASE_URL || './').replace(/\/$/, '');
       const newsUrl = `${base}/data/news.json?t=${Date.now()}`;
       const response = await fetch(newsUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      if (response.ok) {
+        const data: NewsData = await response.json();
+        if (data.items) {
+          loadedItems = data.items;
+          updatedTime = data.updated || updatedTime;
+        }
       }
-      const data: NewsData = await response.json();
-      setNewsData(data);
     } catch (err: any) {
       console.warn('Could not fetch dynamic news.json, using fallback data:', err);
-    } finally {
-      setIsLoading(false);
     }
+
+    // Also fetch stories from Firestore database
+    try {
+      const storiesQuery = query(collection(db, 'stories'), limit(100));
+      const querySnap = await getDocs(storiesQuery);
+      if (!querySnap.empty) {
+        const firestoreStories: NewsItem[] = [];
+        querySnap.forEach((docSnap) => {
+          firestoreStories.push(docSnap.data() as NewsItem);
+        });
+        if (firestoreStories.length > 0) {
+          const fsIds = new Set(firestoreStories.map((s) => s.id));
+          const dedupedLocal = loadedItems.filter((item) => !fsIds.has(item.id));
+          loadedItems = [...firestoreStories, ...dedupedLocal];
+        }
+      }
+    } catch (fsErr) {
+      console.warn('Note reading Firestore stories:', fsErr);
+    }
+
+    if (loadedItems.length > 0) {
+      setNewsData({
+        updated: updatedTime,
+        items: loadedItems,
+      });
+    }
+    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -198,8 +251,37 @@ export const App: React.FC = () => {
   };
 
   // Internal Navigation Handlers
+  const handleSelectEntertainmentSubpage = (sub: EntertainmentSubpage) => {
+    setEntertainmentSubpage(sub);
+    window.location.hash = sub === 'news' ? 'Entertainment' : `Entertainment/${sub}`;
+  };
+
+  const handleOpenAuthWithMessage = (msg?: string) => {
+    setAuthPromptMessage(msg);
+    setIsAuthOpen(true);
+  };
+
+  const handleOpenAiAssistant = () => {
+    if (!currentUser) {
+      handleOpenAuthWithMessage('Members Only: Please sign up or sign in to access the AI Intelligence Assistant.');
+      return;
+    }
+    setIsAiChatOpen(true);
+  };
+
+  const handleOpenAiStudio = () => {
+    if (!currentUser) {
+      handleOpenAuthWithMessage('Members Only: Please sign up or sign in to access the AI Media Studio.');
+      return;
+    }
+    setIsAiStudioOpen(true);
+  };
+
   const handleSelectCategory = (cat: string) => {
     setShowOnlyBookmarks(false);
+    if (cat === 'Entertainment') {
+      setEntertainmentSubpage('news');
+    }
     window.location.hash = cat;
   };
 
@@ -223,6 +305,7 @@ export const App: React.FC = () => {
   // Sign in / Sign out handlers
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user);
+    setAuthPromptMessage(undefined);
   };
 
   const handleSignOut = async () => {
@@ -265,10 +348,10 @@ export const App: React.FC = () => {
         onNavigateHome={handleNavigateHome}
         onNavigateBrand={() => handleNavigateView('brand')}
         onNavigateAdmin={() => handleNavigateView('admin')}
-        onOpenAiChat={() => setIsAiChatOpen(true)}
-        onOpenAiStudio={() => setIsAiStudioOpen(true)}
+        onOpenAiChat={handleOpenAiAssistant}
+        onOpenAiStudio={handleOpenAiStudio}
         currentUser={currentUser}
-        onOpenAuth={() => setIsAuthOpen(true)}
+        onOpenAuth={() => handleOpenAuthWithMessage()}
         onSignOut={handleSignOut}
         theme={theme}
         onToggleTheme={handleToggleTheme}
@@ -290,6 +373,10 @@ export const App: React.FC = () => {
           onToggleBookmark={handleToggleBookmark}
           onOpenStory={handleOpenStory}
           onSubscribe={handleSubscribe}
+          currentUser={currentUser}
+          onOpenAuth={handleOpenAuthWithMessage}
+          entertainmentSubpage={entertainmentSubpage}
+          onSelectEntertainmentSubpage={handleSelectEntertainmentSubpage}
         />
       )}
 
@@ -322,7 +409,8 @@ export const App: React.FC = () => {
       {view === 'admin' && (
         <AdminView
           currentUser={currentUser}
-          onOpenAuth={() => setIsAuthOpen(true)}
+          onOpenAuth={() => handleOpenAuthWithMessage()}
+          onAuthorizeAdmin={(user) => setCurrentUser(user)}
           allStories={allStories}
           onAddStory={handleAddCustomStory}
           onDeleteStory={handleDeleteStory}
@@ -336,8 +424,12 @@ export const App: React.FC = () => {
       {/* Auth & Newsletter Modal */}
       <AuthModal
         isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
+        onClose={() => {
+          setIsAuthOpen(false);
+          setAuthPromptMessage(undefined);
+        }}
         onSuccess={handleAuthSuccess}
+        initialPromptMessage={authPromptMessage}
       />
 
       {/* Gemini AI Assistant Drawer */}
@@ -345,12 +437,16 @@ export const App: React.FC = () => {
         isOpen={isAiChatOpen}
         onClose={() => setIsAiChatOpen(false)}
         activeSector={currentCategory}
+        currentUser={currentUser}
+        onOpenAuth={handleOpenAuthWithMessage}
       />
 
       {/* Gemini Media Studio Modal */}
       <AiMediaStudioModal
         isOpen={isAiStudioOpen}
         onClose={() => setIsAiStudioOpen(false)}
+        currentUser={currentUser}
+        onOpenAuth={handleOpenAuthWithMessage}
       />
     </>
   );

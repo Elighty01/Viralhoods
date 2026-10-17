@@ -1,7 +1,7 @@
 name: news
 on:
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 0 * * *"
   workflow_dispatch:
 permissions:
   contents: write
@@ -9,20 +9,21 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install feedparser
+      - run: pip install feedparser || true
       - run: python bot/fetch_news.py
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - run: |
-          mkdir -p public/data
+          mkdir -p public/data docs/data dist/data
           cp data/news.json public/data/news.json
+          cp data/news.json docs/data/news.json || true
+          cp data/news.json dist/data/news.json || true
           git config user.name "viralhoods-bot"
           git config user.email "bot@users.noreply.github.com"
-          git add data/news.json public/data/news.json
-          git diff --cached --quiet || (git commit -m "Update news" && git push)
+          git add data/news.json public/data/news.json docs/data/news.json || true
+          git diff --cached --quiet || (git commit -m "Automated viral news scrape (12 AM UTC)" && git push)

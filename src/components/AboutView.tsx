@@ -61,8 +61,8 @@ export const AboutView: React.FC = () => {
       <h2>Corrections & Integrity</h2>
       <p>
         Accuracy is our paramount standard. If you discover a factual mistake or need to submit a clarification, contact our editorial desk at{' '}
-        <a href="mailto:yussufelijah@gmail.com" style={{ color: 'var(--blue)', fontWeight: 700 }}>
-          yussufelijah@gmail.com
+        <a href="mailto:editorial@viralhoods.com" style={{ color: 'var(--blue)', fontWeight: 700 }}>
+          editorial@viralhoods.com
         </a>
         . Verified corrections are published promptly.
       </p>

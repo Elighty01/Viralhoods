@@ -112,6 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
                   borderColor: 'var(--blue)',
                   color: 'var(--blue)',
                   fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
                 title="Open Viralhoods AI Intelligence Assistant"
               >
@@ -123,7 +126,12 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 className="icon-btn"
                 onClick={onOpenAiStudio}
-                style={{ fontWeight: 700 }}
+                style={{
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
                 title="Open AI Media Studio (Veo 3, Images, Audio & Maps)"
               >
                 <Film size={14} /> AI Studio
@@ -157,35 +165,29 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Saved ({bookmarksCount})</span>
               </button>
 
-              {/* Admin Button (ONLY VISIBLE TO OWNER yussufelijah@gmail.com) */}
+              {/* Discreet Editorial Console Button for Authorized Session */}
               {currentUser?.isAdmin && (
                 <button
                   type="button"
                   className="icon-btn"
                   onClick={onNavigateAdmin}
-                  style={{
-                    borderColor: '#ef4444',
-                    color: '#ef4444',
-                    background: 'rgba(239, 68, 68, 0.08)',
-                    fontWeight: 700,
-                  }}
-                  title="Site Owner Admin Console"
+                  style={{ fontWeight: 600 }}
+                  title="Editorial Management Console"
                 >
-                  <Shield size={14} /> Admin
+                  <Shield size={14} /> Console
                 </button>
               )}
 
               {/* User Authentication Status */}
               {currentUser ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div className="user-badge" title={`Signed in as ${currentUser.email}`}>
+                  <div className="user-badge" title={`Signed in as ${currentUser.name || currentUser.email}`}>
                     <div className="user-avatar">
                       {currentUser.name ? currentUser.name[0].toUpperCase() : 'U'}
                     </div>
                     <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {currentUser.name || currentUser.email.split('@')[0]}
                     </span>
-                    {currentUser.isAdmin && <span className="admin-pill">ADMIN</span>}
                   </div>
 
                   <button

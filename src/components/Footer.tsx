@@ -23,20 +23,17 @@ export const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate }) => {
               Brand Kit & Logo
             </button>
 
-            {/* Admin link ONLY rendered for owner yussufelijah@gmail.com */}
+            {/* Discreet Console link only rendered for active admin session */}
             {currentUser?.isAdmin && (
               <button
                 type="button"
                 onClick={() => onNavigate('admin')}
                 style={{
-                  color: '#ef4444',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
+                  color: 'var(--fg-muted)',
+                  fontWeight: 500,
                 }}
               >
-                <Shield size={14} /> Admin Console
+                Editorial Console
               </button>
             )}
           </nav>
