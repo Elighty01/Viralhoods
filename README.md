@@ -1,17 +1,34 @@
 # Viralhoods
 
-A news site for GitHub Pages. A bot runs every day on GitHub Actions and updates `data/news.json`.
+A fast, responsive trending news aggregator built with React, TypeScript, and Vite. Viralhoods compiles short, clear summaries of what is trending across politics, finance, health, entertainment, research, science, AI, tech, sports, and world news.
 
-## Set up
-1. Create a GitHub repository and upload everything in this folder. Keep the folders as they are.
-2. Go to Settings > Pages. Choose "Deploy from a branch", then `main` and `/ (root)`.
-3. Go to Settings > Secrets and variables > Actions. Add a secret named `GEMINI_API_KEY` (a free key from Google AI Studio) or `ANTHROPIC_API_KEY`. If both exist, Gemini is used. With neither, the bot shows the feed's own short excerpt instead of a rewrite. If Google retires the Gemini model, add a repository variable named `GEMINI_MODEL` with a newer model name (Settings > Secrets and variables > Actions > Variables).
-4. Open the Actions tab, choose "news", then "Run workflow". After this the bot runs by itself every day at 06:00 UTC.
+## Features
 
-## Admin button
-Create a fine-grained GitHub token for this repository only, with Actions read and write access. Open `admin.html` on your site, paste your `username/repository` and the token, then press "Refresh news now". The token stays in your browser only.
+- **Categorized News Feed**: Filter by sectors including World, Politics, Finance, Health, Entertainment, Research, Science, AI, Tech, and Sports.
+- **Dynamic Lead & Grid Layout**: Highlights the top trending story with a prominent lead card and displays remaining sector stories in a clean grid.
+- **Instant Search**: Real-time story title and summary filtering.
+- **Graceful Fallbacks**: Dynamic HSL gradients tailored to each news category when images are unavailable or fail to load.
+- **Admin Dashboard**: Trigger repository workflows via GitHub Actions workflow dispatches using a fine-grained token stored locally in the browser.
+- **Responsive & Dark Mode**: Bricolage Grotesque typography with automatic light and dark mode support.
 
-## Change things
-- News sources: the `FEEDS` list at the top of `bot/fetch_news.py`.
-- Run time: the `cron` line in `.github/workflows/news.yml`.
-- Contact email: `about.html`. Social links: the footer in `app.js`.
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server on port 3000
+npm run dev
+
+# Build production bundle
+npm run build
+```
+
+## Structure
+
+- `src/`
+  - `components/`: Header, Footer, NewsCard, FeedView, AboutView, AdminView
+  - `types.ts`: NewsItem and Category definitions
+  - `App.tsx`: Main routing and application state
+  - `index.css`: Design system and typography
+- `data/news.json` & `public/data/news.json`: Active news feed data

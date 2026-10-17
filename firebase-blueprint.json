@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "Story": {
+      "title": "Story",
+      "description": "An original news story synthesized by Viralhoods",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "author": { "type": "string" },
+        "readTime": { "type": "string" },
+        "date": { "type": "string" },
+        "image": { "type": "string" },
+        "keyTakeaways": { "type": "array" },
+        "content": { "type": "array" },
+        "whyItMatters": { "type": "string" },
+        "whatNext": { "type": "string" },
+        "createdById": { "type": "string" }
+      },
+      "required": ["id", "category", "title", "summary", "date"]
+    },
+    "Subscriber": {
+      "title": "Subscriber",
+      "description": "A reader subscribed to the Viralhoods Daily Briefing",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "subscribedAt": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "required": ["email", "subscribedAt"]
+    },
+    "Bookmark": {
+      "title": "Bookmark",
+      "description": "A saved story bookmark for a user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "storyId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["userId", "storyId"]
+    },
+    "AiConversation": {
+      "title": "AiConversation",
+      "description": "An interactive AI chat conversation thread",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "messages": { "type": "array" }
+      },
+      "required": ["userId", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/stories/{storyId}": {
+      "schema": { "$ref": "entities/Story" },
+      "description": "Publicly readable news stories published on Viralhoods"
+    },
+    "/subscribers/{subscriberId}": {
+      "schema": { "$ref": "entities/Subscriber" },
+      "description": "Newsletter subscribers collection"
+    },
+    "/bookmarks/{bookmarkId}": {
+      "schema": { "$ref": "entities/Bookmark" },
+      "description": "User saved bookmarks"
+    },
+    "/ai_conversations/{convId}": {
+      "schema": { "$ref": "entities/AiConversation" },
+      "description": "Conversations with the AI news assistant"
+    }
+  }
+}

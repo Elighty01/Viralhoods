@@ -1,0 +1,7 @@
+{
+  "name": "Viralhoods",
+  "description": "Short, clear summaries of what is trending in politics, finance, health, entertainment, research, science and AI.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
