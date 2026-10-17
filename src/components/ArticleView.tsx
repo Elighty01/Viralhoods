@@ -16,6 +16,7 @@ import {
   BookOpen,
   Gauge,
 } from 'lucide-react';
+import { SocialShareBar } from './SocialShareBar';
 
 interface ArticleViewProps {
   story: NewsItem;
@@ -303,22 +304,13 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                   {isBookmarked ? 'Saved' : 'Save'}
                 </button>
 
-                <button
-                  type="button"
-                  className="icon-btn"
-                  onClick={handleShare}
-                  title="Copy story link"
-                >
-                  {copied ? (
-                    <>
-                      <Check size={15} style={{ color: '#10b981' }} /> Copied!
-                    </>
-                  ) : (
-                    <>
-                      <Share2 size={15} /> Share
-                    </>
-                  )}
-                </button>
+                <SocialShareBar
+                  title={enrichedStory.title}
+                  storyId={story.id}
+                  category={enrichedStory.category}
+                  summary={enrichedStory.summary}
+                  variant="compact"
+                />
               </div>
             </div>
           </header>
@@ -399,6 +391,15 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
               <p>{enrichedStory.whatNext}</p>
             </div>
           )}
+
+          {/* Social Media Sharing Component */}
+          <SocialShareBar
+            title={enrichedStory.title}
+            storyId={story.id}
+            category={enrichedStory.category}
+            summary={enrichedStory.summary}
+            variant="full"
+          />
 
           {/* In-Article Newsletter Signup */}
           <div className="newsletter-banner" style={{ margin: '40px 0 30px' }}>
