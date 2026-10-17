@@ -49,36 +49,81 @@ DEFAULT_IMAGES = {
 
 import html
 
-def clean_html(raw_html):
+
+def normalize_dashes(text: str) -> str:
+    """Normalize common Unicode dashes (en dash, em dash, figure dash, minus) to a simple hyphen-minus.
+    Also collapse repeated hyphens and trim surrounding spaces.
+    """
+    if not text:
+        return ""
+    # Replace various dash characters with a standard hyphen
+    text = re.sub(r'[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]', '-', text)
+    # Normalize any multiple hyphens or spaces around hyphens
+    text = re.sub(r'\s*-\s*', ' - ', text)
+    text = re.sub(r'-{2,}', '-', text)
+    return text.strip()
+
+
+def clean_html(raw_html: str) -> str:
+    """Robust HTML cleaning and entity handling.
+
+    - Unwrap CDATA blocks
+    - Use html.unescape to decode named & numeric entities
+    - Remove tags, scripts/styles, and excessive whitespace
+    - Normalize non-breaking spaces and other control whitespace
+    - Normalize Unicode dashes so titles and descriptions compare consistently
+    """
     if not raw_html:
         return ""
+
+    # Remove CDATA wrapper
     clean = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', raw_html, flags=re.DOTALL)
-    clean = html.unescape(clean)
-    if '&lt;' in clean or '&gt;' in clean or '&amp;' in clean:
+
+    # Remove script/style blocks entirely
+    clean = re.sub(r'<script[^>]*>.*?</script>', ' ', clean, flags=re.DOTALL | re.IGNORECASE)
+    clean = re.sub(r'<style[^>]*>.*?</style>', ' ', clean, flags=re.DOTALL | re.IGNORECASE)
+
+    # Decode HTML entities (covers &amp;, &lt;, &gt;, numeric entities like &#8211;, etc.)
+    try:
         clean = html.unescape(clean)
+    except Exception:
+        # Fallback: basic replacements
+        clean = clean.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+
+    # Strip any remaining tags
     clean = re.sub(r'<[^>]+>', ' ', clean)
+
+    # Normalize common non-breaking spaces and other unicode whitespace
     clean = clean.replace('&nbsp;', ' ').replace('\xa0', ' ')
+
+    # Collapse whitespace
     clean = re.sub(r'\s+', ' ', clean).strip()
+
+    # Normalize dashes for consistent comparisons and presentation
+    clean = normalize_dashes(clean)
+
     return clean
 
-def extract_image(raw_xml_block):
+
+def extract_image(raw_xml_block: str):
     # Match media:thumbnail or media:content with url
     m = re.search(r'<(?:media:thumbnail|media:content)[^>]+url=["\']([^"\']+)["\']', raw_xml_block, re.IGNORECASE)
     if m:
-        return m.group(1).replace('&amp;', '&')
+        return html.unescape(m.group(1)).replace('&amp;', '&')
     # Match enclosure
     m2 = re.search(r'<enclosure[^>]+url=["\']([^"\']+)["\']', raw_xml_block, re.IGNORECASE)
     if m2:
-        return m2.group(1).replace('&amp;', '&')
+        return html.unescape(m2.group(1)).replace('&amp;', '&')
     # Match image inside escaped or normal HTML
     m3 = re.search(r'(?:&lt;|<)img[^>]+src=["\']([^"\']+)["\']', raw_xml_block, re.IGNORECASE)
     if m3:
-        return m3.group(1).replace('&amp;', '&')
+        return html.unescape(m3.group(1)).replace('&amp;', '&')
     # Match direct image url in quotes
     m4 = re.search(r'["\'](https?://[^"\']+\.(?:jpg|jpeg|png|webp)[^"\']*)["\']', raw_xml_block, re.IGNORECASE)
     if m4:
-        return m4.group(1).replace('&amp;', '&')
+        return html.unescape(m4.group(1)).replace('&amp;', '&')
     return None
+
 
 def fetch_items_for_category(category, feed_url):
     items = []
@@ -95,20 +140,37 @@ def fetch_items_for_category(category, feed_url):
             d_match = re.search(r'<description\b[^>]*>(.*?)</description>', block, re.DOTALL)
             p_match = re.search(r'<pubDate\b[^>]*>(.*?)</pubDate>', block, re.DOTALL)
 
-            title = clean_html(t_match.group(1)) if t_match else ''
-            link = clean_html(l_match.group(1)) if l_match else ''
-            desc = clean_html(d_match.group(1)) if d_match else ''
-            pub = clean_html(p_match.group(1)) if p_match else ''
+            title_raw = t_match.group(1) if t_match else ''
+            link_raw = l_match.group(1) if l_match else ''
+            desc_raw = d_match.group(1) if d_match else ''
+            pub_raw = p_match.group(1) if p_match else ''
+
+            # Clean and normalize text
+            title = clean_html(title_raw)
+            link = html.unescape(link_raw).strip() if link_raw else ''
+            desc = clean_html(desc_raw)
+            pub = clean_html(pub_raw)
             img = extract_image(block)
 
             if not title:
                 continue
 
-            # Strip repeated title or wire names from description
-            if desc and (desc.lower() == title.lower() or desc.lower().startswith(title.lower()[:30])):
-                desc = f"Latest developments regarding {title}. Verified analysis across the {category.lower()} sphere highlights key strategic takeaways."
-            elif not desc or len(desc) < 20:
-                desc = f"Comprehensive reporting on {title}: strategic implications, operational metrics, and broader sector impact."
+            title_lower = title.lower().strip()
+            desc_lower = (desc or '').lower().strip()
+
+            # If description is missing, too short, or is essentially the same as the title, synthesize a useful fallback.
+            need_fallback = False
+            if not desc or len(desc) < 40:
+                need_fallback = True
+            else:
+                # Consider it redundant if it exactly matches the title, starts with the title, or repeats wire markers
+                if desc_lower == title_lower or desc_lower.startswith(title_lower[:30]) or title_lower in desc_lower[: len(title_lower) + 10]:
+                    need_fallback = True
+
+            if need_fallback:
+                desc = (
+                    f"Latest developments regarding {title}. Verified analysis across the {category.lower()} sphere highlights key strategic takeaways."
+                )
 
             items.append({
                 "title": title,
@@ -123,32 +185,37 @@ def fetch_items_for_category(category, feed_url):
         print(f"Error fetching {category} from {feed_url}: {e}")
     return items
 
+
 def paraphrase_headline(title, summary, category):
     """
     Modifies or paraphrases the original headline without copying verbatim.
     Retains the core factual substance while applying fresh, engaging journalistic phrasing.
     """
-    # Remove wire tags
-    clean_title = re.sub(r'\s*[-|–—:]\s*(BBC|CNN|Reuters|AP|The Guardian|The Times|CNBC|Yahoo|Forbes|Bloomberg|ESPN|TechCrunch).*$', '', title, flags=re.IGNORECASE).strip()
-    
+    # Normalize dashes first so later regexes match consistently
+    title = normalize_dashes(title)
+
+    # Remove wire tags like "- BBC" or similar (handles both ASCII and Unicode dashes)
+    clean_title = re.sub(r"\s*[\-|–—:—]\s*(BBC|CNN|Reuters|AP|The Guardian|The Times|CNBC|Yahoo|Forbes|Bloomberg|ESPN|TechCrunch).*?$", "", title, flags=re.IGNORECASE).strip()
+
     words = clean_title.split()
     h_hash = int(hashlib.md5(clean_title.encode('utf-8')).hexdigest(), 16)
-    
+
     # Paraphrase structures
     modified = clean_title
-    if " amid " in modified.lower():
+    low = modified.lower()
+    if " amid " in low:
         parts = re.split(r'\s+amid\s+', modified, flags=re.IGNORECASE)
         if len(parts) == 2:
             modified = f"As {parts[1].capitalize()}: {parts[0]}"
-    elif " as " in modified.lower():
+    elif " as " in low:
         parts = re.split(r'\s+as\s+', modified, flags=re.IGNORECASE)
         if len(parts) == 2:
-            modified = f"{parts[0]} — Key Signals from {parts[1]}"
-    elif " after " in modified.lower():
+            modified = f"{parts[0]} - Key Signals from {parts[1]}"
+    elif " after " in low:
         parts = re.split(r'\s+after\s+', modified, flags=re.IGNORECASE)
         if len(parts) == 2:
             modified = f"Following {parts[1].capitalize()}: {parts[0]}"
-    elif " over " in modified.lower():
+    elif " over " in low:
         parts = re.split(r'\s+over\s+', modified, flags=re.IGNORECASE)
         if len(parts) == 2:
             modified = f"{parts[0]}: Inside the Controversy Surrounding {parts[1]}"
@@ -156,7 +223,7 @@ def paraphrase_headline(title, summary, category):
         angles = [
             f"{clean_title}: Essential Takeaways and Strategic Outlook",
             f"Behind the Headlines: {clean_title}",
-            f"{clean_title} — Sector Analysis & Ripple Effects",
+            f"{clean_title} - Sector Analysis & Ripple Effects",
             f"Global Perspective: {clean_title}",
         ]
         modified = angles[h_hash % len(angles)]
@@ -181,9 +248,10 @@ def paraphrase_headline(title, summary, category):
         "what_next": "Upcoming stakeholder conferences and regulatory disclosures will determine the next operational phase."
     }
 
+
 def main():
     print(f"=== Viralhoods Automated News Bot running at {datetime.now(timezone.utc).isoformat()} ===")
-    
+
     all_news_items = []
     now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -197,7 +265,7 @@ def main():
         cat_count = 0
         for item in raw_items:
             paraphrased = paraphrase_headline(item["title"], item["summary"], cat)
-            final_title = paraphrased["modified_title"]
+            final_title = normalize_dashes(paraphrased["modified_title"])
             item_id = hashlib.md5((cat + item["title"]).encode('utf-8')).hexdigest()[:12]
 
             img = item["image"]
@@ -208,7 +276,7 @@ def main():
                 "id": item_id,
                 "category": cat,
                 "title": final_title,
-                "originalTitle": item["title"],
+                "originalTitle": normalize_dashes(item["title"]),
                 "summary": item["summary"] or f"Synthesized analysis on {final_title}.",
                 "source": "Viralhoods Wire Desk",
                 "url": item["link"] or "#",
@@ -244,7 +312,7 @@ def main():
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
         with open(p, "w", encoding="utf-8") as f:
-            json.dump(output, f, indent=2)
+            json.dump(output, f, indent=2, ensure_ascii=False)
         print(f"Wrote {len(all_news_items)} items to {p}")
 
     print("=== News Bot Execution Completed Successfully ===")
