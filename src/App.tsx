@@ -24,6 +24,7 @@ import {
   deleteCustomStory,
   addSubscriber,
 } from './utils/storage';
+import { sanitizeNewsItem } from './utils/sanitize';
 import initialNewsData from '../data/news.json';
 
 type ActiveView = 'feed' | 'story' | 'about' | 'admin' | 'brand';
@@ -112,7 +113,7 @@ export const App: React.FC = () => {
     const baseItems = newsData?.items || [];
     const customIds = new Set(customStories.map((s) => s.id));
     const dedupedBase = baseItems.filter((b) => !customIds.has(b.id));
-    return [...customStories, ...dedupedBase];
+    return [...customStories, ...dedupedBase].map(sanitizeNewsItem);
   }, [newsData, customStories]);
 
   // Active story lookup

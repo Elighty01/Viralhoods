@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { NewsItem, CATEGORIES } from '../types';
 import { Bookmark, ArrowRight, Clock } from 'lucide-react';
+import { sanitizeHtmlText } from '../utils/sanitize';
 
 interface NewsCardProps {
   item: NewsItem;
@@ -142,9 +143,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           </span>
         </div>
 
-        {lead ? <h2>{item.title}</h2> : <h3>{item.title}</h3>}
+        {lead ? <h2>{sanitizeHtmlText(item.title)}</h2> : <h3>{sanitizeHtmlText(item.title)}</h3>}
 
-        <p className="card-summary">{item.summary}</p>
+        <p className="card-summary">{sanitizeHtmlText(item.summary)}</p>
 
         <div className="card-footer-meta">
           <span>

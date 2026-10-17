@@ -1,17 +1,19 @@
 import { NewsItem } from '../types';
+import { sanitizeHtmlText, sanitizeNewsItem } from './sanitize';
 
 /**
  * Ensures any story item has full, original editorial content, key takeaways,
  * and analysis, completely paraphrased and owned by Viralhoods with zero external links.
  */
-export const enrichStoryWithFullContent = (item: NewsItem): NewsItem => {
+export const enrichStoryWithFullContent = (rawItem: NewsItem): NewsItem => {
+  const item = sanitizeNewsItem(rawItem);
   if (item.content && item.content.length > 0 && item.keyTakeaways && item.keyTakeaways.length > 0) {
     return item;
   }
 
   const categoryDesk = `Viralhoods ${item.category || 'Global'} Desk`;
-  const cleanSummary = (item.summary || '').trim();
-  const title = (item.title || '').trim();
+  const cleanSummary = sanitizeHtmlText(item.summary || '');
+  const title = sanitizeHtmlText(item.title || '');
 
   // Synthesize original, in-depth paraphrased reporting based on the headline & summary
   const keyTakeaways = [

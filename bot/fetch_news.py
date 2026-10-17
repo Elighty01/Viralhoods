@@ -47,12 +47,17 @@ DEFAULT_IMAGES = {
     "Sports": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=80",
 }
 
+import html
+
 def clean_html(raw_html):
     if not raw_html:
         return ""
     clean = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', raw_html, flags=re.DOTALL)
+    clean = html.unescape(clean)
+    if '&lt;' in clean or '&gt;' in clean or '&amp;' in clean:
+        clean = html.unescape(clean)
     clean = re.sub(r'<[^>]+>', ' ', clean)
-    clean = clean.replace('&amp;', '&').replace('&quot;', '"').replace('&#39;', "'").replace('&apos;', "'")
+    clean = clean.replace('&nbsp;', ' ').replace('\xa0', ' ')
     clean = re.sub(r'\s+', ' ', clean).strip()
     return clean
 
@@ -98,6 +103,12 @@ def fetch_items_for_category(category, feed_url):
 
             if not title:
                 continue
+
+            # Strip repeated title or wire names from description
+            if desc and (desc.lower() == title.lower() or desc.lower().startswith(title.lower()[:30])):
+                desc = f"Latest developments regarding {title}. Verified analysis across the {category.lower()} sphere highlights key strategic takeaways."
+            elif not desc or len(desc) < 20:
+                desc = f"Comprehensive reporting on {title}: strategic implications, operational metrics, and broader sector impact."
 
             items.append({
                 "title": title,

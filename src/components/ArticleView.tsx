@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { NewsItem } from '../types';
 import { enrichStoryWithFullContent } from '../utils/articleGenerator';
+import { sanitizeHtmlText } from '../utils/sanitize';
 import { formatAgo } from './NewsCard';
 import {
   ArrowLeft,
@@ -210,9 +211,9 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
               <span>Published {formatAgo(enrichedStory.date)}</span>
             </div>
 
-            <h1 className="article-title">{enrichedStory.title}</h1>
+            <h1 className="article-title">{sanitizeHtmlText(enrichedStory.title)}</h1>
 
-            <p className="article-summary-lead">{enrichedStory.summary}</p>
+            <p className="article-summary-lead">{sanitizeHtmlText(enrichedStory.summary)}</p>
 
             {/* Reading Estimation Card / Metrics Bar */}
             <div
@@ -367,7 +368,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
           {/* In-Depth Article Content */}
           <div className="article-body">
             {enrichedStory.content?.map((paragraph, index) => (
-              <p key={index}>{paragraph}</p>
+              <p key={index}>{sanitizeHtmlText(paragraph)}</p>
             ))}
           </div>
 
@@ -378,7 +379,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                 <Layers size={18} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
                 Why It Matters
               </h4>
-              <p>{enrichedStory.whyItMatters}</p>
+              <p>{sanitizeHtmlText(enrichedStory.whyItMatters)}</p>
             </div>
           )}
 
@@ -389,7 +390,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                 <Compass size={18} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
                 What's Next
               </h4>
-              <p>{enrichedStory.whatNext}</p>
+              <p>{sanitizeHtmlText(enrichedStory.whatNext)}</p>
             </div>
           )}
 

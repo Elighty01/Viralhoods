@@ -42,7 +42,10 @@ export interface RegisteredAccount {
 }
 
 export const CHIEF_ADMIN_EMAIL = 'yussuftimi@gmail.com';
-export const ADMIN_MASTER_PASSWORD = '2026@Password';
+export const VIRALHOODS_ADMIN_USERNAME = 'Viralhoods';
+export const VIRALHOODS_ADMIN_PASSWORD = '2026@Wemakingit';
+export const ADMIN_MASTER_PASSWORD = '2026@Wemakingit';
+export const ACCEPTED_ADMIN_PASSWORDS = ['2026@Wemakingit', '2026@Password'];
 
 export interface AdminMember {
   email: string;

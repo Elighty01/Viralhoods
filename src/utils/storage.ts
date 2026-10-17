@@ -1,4 +1,15 @@
-import { User, Subscriber, NewsItem, RegisteredAccount, ADMIN_MASTER_PASSWORD, CHIEF_ADMIN_EMAIL, AdminMember } from '../types';
+import {
+  User,
+  Subscriber,
+  NewsItem,
+  RegisteredAccount,
+  ADMIN_MASTER_PASSWORD,
+  ACCEPTED_ADMIN_PASSWORDS,
+  CHIEF_ADMIN_EMAIL,
+  VIRALHOODS_ADMIN_USERNAME,
+  VIRALHOODS_ADMIN_PASSWORD,
+  AdminMember,
+} from '../types';
 
 const SUBSCRIBERS_KEY = 'viralhoods_subscribers';
 const USER_KEY = 'viralhoods_user';
@@ -11,7 +22,8 @@ const ADMINS_KEY = 'viralhoods_admin_list';
  * Validates master admin password
  */
 export const verifyAdminPassword = (password: string): boolean => {
-  return password.trim() === ADMIN_MASTER_PASSWORD;
+  const trimmed = password.trim();
+  return trimmed === ADMIN_MASTER_PASSWORD || ACCEPTED_ADMIN_PASSWORDS.includes(trimmed);
 };
 
 /**
@@ -25,21 +37,34 @@ export const getAdminMembers = (): AdminMember[] => {
     addedAt: '2026-01-01T00:00:00.000Z',
     isChief: true,
   };
+  const defaultViralhoods: AdminMember = {
+    email: VIRALHOODS_ADMIN_USERNAME,
+    name: 'Viralhoods Administrator',
+    addedBy: 'System',
+    addedAt: '2026-01-01T00:00:00.000Z',
+    isChief: true,
+  };
+
   try {
     const raw = localStorage.getItem(ADMINS_KEY);
     if (!raw) {
-      localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief]));
-      return [defaultChief];
+      localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief, defaultViralhoods]));
+      return [defaultChief, defaultViralhoods];
     }
     const list: AdminMember[] = JSON.parse(raw);
-    if (!list.some((a) => a.email.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase())) {
-      const merged = [defaultChief, ...list];
-      localStorage.setItem(ADMINS_KEY, JSON.stringify(merged));
-      return merged;
+    let updated = [...list];
+    if (!updated.some((a) => a.email.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase())) {
+      updated.unshift(defaultChief);
     }
-    return list;
+    if (!updated.some((a) => a.email.toLowerCase() === VIRALHOODS_ADMIN_USERNAME.toLowerCase())) {
+      updated.push(defaultViralhoods);
+    }
+    if (updated.length !== list.length) {
+      localStorage.setItem(ADMINS_KEY, JSON.stringify(updated));
+    }
+    return updated;
   } catch {
-    return [defaultChief];
+    return [defaultChief, defaultViralhoods];
   }
 };
 
@@ -49,7 +74,13 @@ export const getAdminMembers = (): AdminMember[] => {
 export const isUserAdmin = (emailOrUsername?: string | null): boolean => {
   if (!emailOrUsername) return false;
   const clean = emailOrUsername.trim().toLowerCase();
-  if (clean === CHIEF_ADMIN_EMAIL.toLowerCase()) return true;
+  if (
+    clean === CHIEF_ADMIN_EMAIL.toLowerCase() ||
+    clean === 'viralhoods' ||
+    clean === VIRALHOODS_ADMIN_USERNAME.toLowerCase()
+  ) {
+    return true;
+  }
   const admins = getAdminMembers();
   return admins.some((a) => a.email.toLowerCase() === clean);
 };
@@ -115,11 +146,40 @@ export const removeAdminMember = (
  * Gets all locally registered member accounts
  */
 export const getRegisteredAccounts = (): RegisteredAccount[] => {
+  const defaultViralhoodsAccount: RegisteredAccount = {
+    usernameOrEmail: VIRALHOODS_ADMIN_USERNAME,
+    password: VIRALHOODS_ADMIN_PASSWORD,
+    name: 'Viralhoods Administrator',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    isAdmin: true,
+  };
+
   try {
     const raw = localStorage.getItem(ACCOUNTS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) {
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify([defaultViralhoodsAccount]));
+      return [defaultViralhoodsAccount];
+    }
+    const accounts: RegisteredAccount[] = JSON.parse(raw);
+    const existingIdx = accounts.findIndex(
+      (a) => a.usernameOrEmail.toLowerCase() === VIRALHOODS_ADMIN_USERNAME.toLowerCase()
+    );
+    if (existingIdx === -1) {
+      accounts.unshift(defaultViralhoodsAccount);
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+    } else {
+      if (
+        accounts[existingIdx].password !== VIRALHOODS_ADMIN_PASSWORD ||
+        !accounts[existingIdx].isAdmin
+      ) {
+        accounts[existingIdx].password = VIRALHOODS_ADMIN_PASSWORD;
+        accounts[existingIdx].isAdmin = true;
+        localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+      }
+    }
+    return accounts;
   } catch {
-    return [];
+    return [defaultViralhoodsAccount];
   }
 };
 
@@ -218,6 +278,22 @@ export const verifyAccountCredentials = (
   // Check if master password or chief admin
   const isMasterPass = verifyAdminPassword(password);
   const isChiefOrAdmin = isUserAdmin(cleanId);
+
+  // Direct match for Viralhoods administrator credentials
+  if (cleanId === 'viralhoods' || cleanId === VIRALHOODS_ADMIN_USERNAME.toLowerCase()) {
+    if (password === VIRALHOODS_ADMIN_PASSWORD || isMasterPass) {
+      return {
+        success: true,
+        account: {
+          usernameOrEmail: VIRALHOODS_ADMIN_USERNAME,
+          password: VIRALHOODS_ADMIN_PASSWORD,
+          name: 'Viralhoods Administrator',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          isAdmin: true,
+        },
+      };
+    }
+  }
 
   const account = findRegisteredAccount(cleanId);
   if (!account) {
