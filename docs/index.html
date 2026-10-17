@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Viralhoods: trending news from every sector</title>
+    <meta name="description" content="Short, clear summaries of what is trending in politics, finance, health, entertainment, research, science and AI." />
+    <meta property="og:title" content="Viralhoods: trending news from every sector" />
+    <meta property="og:description" content="Short, clear summaries of what is trending in politics, finance, health, entertainment, research, science and AI." />
+    <link rel="icon" type="image/svg+xml" href="./assets/logo.svg" />
+    <link rel="apple-touch-icon" href="./assets/logo.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet" />
+    <!-- Production CSS: loads instantly for static GitHub Pages hosting -->
+    <link rel="stylesheet" crossorigin href="./assets/index.css" />
+    <style>
+      body {
+        margin: 0;
+        background-color: #090d16;
+        color: #f8fafc;
+        font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .vh-preloader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+        text-align: center;
+      }
+      .vh-preloader-logo {
+        width: 140px;
+        height: auto;
+        margin-bottom: 24px;
+        filter: drop-shadow(0 4px 14px rgba(41, 182, 246, 0.45));
+        animation: vh-pulse 1.8s infinite ease-in-out;
+      }
+      @keyframes vh-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.95; }
+        50% { transform: scale(1.04); opacity: 1; }
+      }
+      .vh-preloader-spinner {
+        width: 34px;
+        height: 34px;
+        border: 3px solid rgba(255, 255, 255, 0.15);
+        border-top-color: #29b6f6;
+        border-radius: 50%;
+        animation: vh-spin 0.8s linear infinite;
+        margin-bottom: 16px;
+      }
+      @keyframes vh-spin {
+        to { transform: rotate(360deg); }
+      }
+      .vh-preloader-title {
+        font-size: 1.5rem;
+        font-weight: 800;
+        margin: 0 0 8px;
+        letter-spacing: -0.02em;
+        color: #ffffff;
+      }
+      .vh-preloader-tagline {
+        font-size: 0.92rem;
+        color: #94a3b8;
+        margin: 0;
+        max-width: 420px;
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/index.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index.css">
+  </head>
+  <body>
+    <div id="root">
+      <div class="vh-preloader">
+        <img class="vh-preloader-logo" src="data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjAwIDE0NCIgd2lkdGg9IjIwMCIgaGVpZ2h0PSIxNDQiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPCEtLSBUYWJsZXQgT3V0ZXIgQmV6ZWwgd2l0aCBzdWJ0bGUgc2hhZG93IGFuZCBib3JkZXIgLS0+CiAgPGRlZnM+CiAgICA8ZmlsdGVyIGlkPSJ0YWJsZXQtc2hhZG93IiB4PSItMTAlIiB5PSItMTAlIiB3aWR0aD0iMTIwJSIgaGVpZ2h0PSIxMjUlIiBmaWx0ZXJVbml0cz0idXNlclNwYWNlT25Vc2UiPgogICAgICA8ZmVEcm9wU2hhZG93IGR4PSIwIiBkeT0iNCIgc3RkRGV2aWF0aW9uPSI2IiBmbG9vZC1jb2xvcj0iIzAwMDAwMCIgZmxvb2Qtb3BhY2l0eT0iMC4yMiIgLz4KICAgIDwvZmlsdGVyPgogIDwvZGVmcz4KCiAgPHJlY3QgeD0iNiIgeT0iNiIgd2lkdGg9IjE4OCIgaGVpZ2h0PSIxMzIiIHJ4PSIxNCIgZmlsbD0iIzBmMTcyYSIgc3Ryb2tlPSIjMzM0MTU1IiBzdHJva2Utd2lkdGg9IjIuNSIgZmlsdGVyPSJ1cmwoI3RhYmxldC1zaGFkb3cpIiAvPgoKICA8IS0tIENhbWVyYSBMZW5zIGRvdCBvbiB0b3AgYmV6ZWwgLS0+CiAgPGNpcmNsZSBjeD0iMTAwIiBjeT0iMTIiIHI9IjIuNSIgZmlsbD0iIzY0NzQ4YiIgLz4KICA8Y2lyY2xlIGN4PSIxMDAiIGN5PSIxMiIgcj0iMSIgZmlsbD0iIzBmMTcyYSIgLz4KCiAgPCEtLSBUYWJsZXQgV2hpdGUgU2NyZWVuIERpc3BsYXkgLS0+CiAgPHJlY3QgeD0iMTUiIHk9IjE5IiB3aWR0aD0iMTcwIiBoZWlnaHQ9IjEwNiIgcng9IjgiIGZpbGw9IiNmZmZmZmYiIC8+CgogIDwhLS0gU2NyZWVuIGlubmVyIHN1YnRsZSBoaWdobGlnaHQgYm9yZGVyIC0tPgogIDxyZWN0IHg9IjE1IiB5PSIxOSIgd2lkdGg9IjE3MCIgaGVpZ2h0PSIxMDYiIHJ4PSI4IiBzdHJva2U9IiNmMWY1ZjkiIHN0cm9rZS13aWR0aD0iMS41IiAvPgoKICA8IS0tIFZJUkFMIFRleHQgaW4gQ3lhbiBCbHVlIHdpdGggQmxhY2sgQ29udG91ciBPdXRsaW5lIC0tPgogIDx0ZXh0CiAgICB4PSIxMDAiCiAgICB5PSI2NSIKICAgIHRleHQtYW5jaG9yPSJtaWRkbGUiCiAgICBmb250LWZhbWlseT0iLWFwcGxlLXN5c3RlbSwgQmxpbmtNYWNTeXN0ZW1Gb250LCAnQnJpY29sYWdlIEdyb3Rlc3F1ZScsICdBcmlhbCBCbGFjaycsIEltcGFjdCwgc2Fucy1zZXJpZiIKICAgIGZvbnQtd2VpZ2h0PSI5MDAiCiAgICBmb250LXNpemU9IjM0IgogICAgbGV0dGVyLXNwYWNpbmc9IjAuMDJlbSIKICAgIGZpbGw9IiMyOWI2ZjYiCiAgICBzdHJva2U9IiMwMDAwMDAiCiAgICBzdHJva2Utd2lkdGg9IjMiCiAgICBzdHJva2UtbGluZWpvaW49InJvdW5kIgogICAgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIgogICAgcGFpbnQtb3JkZXI9InN0cm9rZSBmaWxsIgogID5WSVJBTDwvdGV4dD4KCiAgPCEtLSBIT09EUyBUZXh0IGluIEN5YW4gQmx1ZSB3aXRoIEJsYWNrIENvbnRvdXIgT3V0bGluZSAtLT4KICA8dGV4dAogICAgeD0iMTAwIgogICAgeT0iMTA2IgogICAgdGV4dC1hbmNob3I9Im1pZGRsZSIKICAgIGZvbnQtZmFtaWx5PSItYXBwbGUtc3lzdGVtLCBCbGlua01hY1N5c3RlbUZvbnQsICdCcmljb2xhZ2UgR3JvdGVzcXVlJywgJ0FyaWFsIEJsYWNrJywgSW1wYWN0LCBzYW5zLXNlcmlmIgogICAgZm9udC13ZWlnaHQ9IjkwMCIKICAgIGZvbnQtc2l6ZT0iMzQiCiAgICBsZXR0ZXItc3BhY2luZz0iMC4wMmVtIgogICAgZmlsbD0iIzI5YjZmNiIKICAgIHN0cm9rZT0iIzAwMDAwMCIKICAgIHN0cm9rZS13aWR0aD0iMyIKICAgIHN0cm9rZS1saW5lam9pbj0icm91bmQiCiAgICBzdHJva2UtbGluZWNhcD0icm91bmQiCiAgICBwYWludC1vcmRlcj0ic3Ryb2tlIGZpbGwiCiAgPkhPT0RTPC90ZXh0Pgo8L3N2Zz4K" alt="Viralhoods" />
+        <div class="vh-preloader-spinner"></div>
+        <h1 class="vh-preloader-title">Viralhoods</h1>
+        <p class="vh-preloader-tagline">Trending summaries from every sector worldwide</p>
+      </div>
+    </div>
+
+    <!-- Script loader: supports BOTH Vite Dev Server AND direct static GitHub Pages -->
+
+    <!-- Vite dev server entry point -->
+  </body>
+</html>

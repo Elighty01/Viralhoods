@@ -12,11 +12,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet" />
+    <!-- Production CSS: loads instantly for static GitHub Pages hosting -->
+    <link rel="stylesheet" crossorigin href="./assets/index.css" />
     <style>
-      /* Initial loader styling before React hydration */
       body {
         margin: 0;
-        background-color: #0f172a;
+        background-color: #090d16;
         color: #f8fafc;
         font-family: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
@@ -33,16 +34,16 @@
         width: 140px;
         height: auto;
         margin-bottom: 24px;
-        filter: drop-shadow(0 4px 12px rgba(41, 182, 246, 0.35));
-        animation: vh-pulse 2s infinite ease-in-out;
+        filter: drop-shadow(0 4px 14px rgba(41, 182, 246, 0.45));
+        animation: vh-pulse 1.8s infinite ease-in-out;
       }
       @keyframes vh-pulse {
         0%, 100% { transform: scale(1); opacity: 0.95; }
         50% { transform: scale(1.04); opacity: 1; }
       }
       .vh-preloader-spinner {
-        width: 36px;
-        height: 36px;
+        width: 34px;
+        height: 34px;
         border: 3px solid rgba(255, 255, 255, 0.15);
         border-top-color: #29b6f6;
         border-radius: 50%;
@@ -60,41 +61,10 @@
         color: #ffffff;
       }
       .vh-preloader-tagline {
-        font-size: 0.95rem;
+        font-size: 0.92rem;
         color: #94a3b8;
-        margin: 0 0 20px;
+        margin: 0;
         max-width: 420px;
-      }
-      .vh-gh-notice {
-        display: none;
-        max-width: 480px;
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 16px 20px;
-        margin-top: 16px;
-        text-align: left;
-        font-size: 0.88rem;
-        color: #cbd5e1;
-        line-height: 1.5;
-      }
-      .vh-gh-notice code {
-        background: #0f172a;
-        color: #38bdf8;
-        padding: 2px 6px;
-        border-radius: 4px;
-        font-size: 0.82rem;
-      }
-      .vh-btn-link {
-        display: inline-block;
-        margin-top: 12px;
-        padding: 8px 16px;
-        background: #0284c7;
-        color: white;
-        text-decoration: none;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: 0.88rem;
       }
     </style>
   </head>
@@ -105,39 +75,35 @@
         <div class="vh-preloader-spinner"></div>
         <h1 class="vh-preloader-title">Viralhoods</h1>
         <p class="vh-preloader-tagline">Trending summaries from every sector worldwide</p>
-        <div id="vh-gh-notice" class="vh-gh-notice">
-          <strong>GitHub Pages Notice:</strong><br />
-          If you are seeing this on GitHub Pages, your repository uses Vite React. Please ensure GitHub Pages is configured to deploy via <strong>GitHub Actions</strong> (Go to repo <em>Settings &rarr; Pages &rarr; Source &rarr; GitHub Actions</em>) or access the built app below:
-          <br />
-          <a id="vh-dist-btn" href="./dist/index.html" class="vh-btn-link">Open Built Application &rarr;</a>
-        </div>
       </div>
     </div>
 
-    <script type="module" src="/src/main.tsx"></script>
+    <!-- Script loader: supports BOTH Vite Dev Server AND direct static GitHub Pages -->
+    <script type="module">
+      const isDevServer = window.location.port === '3000' || 
+                          window.location.hostname === 'localhost' || 
+                          window.location.hostname === '127.0.0.1' || 
+                          window.location.hostname.indexOf('run.app') !== -1;
 
-    <script>
-      // Graceful GitHub Pages detection if raw /src/main.tsx cannot be run directly by browser
-      setTimeout(function() {
-        // If React hasn't replaced #root after 2.5 seconds (meaning raw static host without Vite dev server)
-        var notice = document.getElementById('vh-gh-notice');
-        var spinner = document.querySelector('.vh-preloader-spinner');
-        if (notice && document.querySelector('.vh-preloader')) {
-          if (spinner) spinner.style.display = 'none';
-          notice.style.display = 'block';
-
-          // Auto-check if ./dist/index.html is reachable and redirect
-          if (window.location.hostname.indexOf('github.io') !== -1) {
-            fetch('./dist/index.html', { method: 'HEAD' })
-              .then(function(res) {
-                if (res.ok) {
-                  window.location.replace('./dist/index.html' + window.location.hash);
-                }
-              })
-              .catch(function() {});
-          }
-        }
-      }, 2500);
+      if (!isDevServer) {
+        // Direct static GitHub Pages (https://elighty01.github.io/Viralhoods/):
+        // Automatically inject compiled production script
+        var prodScript = document.createElement('script');
+        prodScript.type = 'module';
+        prodScript.crossOrigin = 'anonymous';
+        prodScript.src = './assets/index.js';
+        prodScript.onerror = function() {
+          var fallbackScript = document.createElement('script');
+          fallbackScript.type = 'module';
+          fallbackScript.crossOrigin = 'anonymous';
+          fallbackScript.src = './dist/assets/index.js';
+          document.head.appendChild(fallbackScript);
+        };
+        document.head.appendChild(prodScript);
+      }
     </script>
+
+    <!-- Vite dev server entry point -->
+    <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>
