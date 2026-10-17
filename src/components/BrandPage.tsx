@@ -57,10 +57,21 @@ export const BrandPage: React.FC = () => {
 
   return (
     <main className="w brand-page">
-      <div className="brand-hero">
+      <div
+        className="brand-hero"
+        style={{
+          position: 'relative',
+          backgroundImage: `linear-gradient(180deg, rgba(9, 13, 22, 0.92) 0%, rgba(9, 13, 22, 0.85) 60%, rgba(9, 13, 22, 0.95) 100%), url('https://images.unsplash.com/photo-1558655146-d09347e92766?auto=format&fit=crop&w=1600&q=85')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          color: '#ffffff',
+          overflow: 'hidden',
+          border: '1px solid var(--line-strong)',
+        }}
+      >
         <span
           style={{
-            color: 'var(--blue)',
+            color: 'var(--blue-vibrant)',
             fontWeight: 800,
             fontSize: '0.82rem',
             letterSpacing: '0.06em',
@@ -71,10 +82,10 @@ export const BrandPage: React.FC = () => {
         >
           Official Brand Identity
         </span>
-        <h1 style={{ fontSize: '2.4rem', fontWeight: 900, letterSpacing: '-0.04em', margin: '0 0 12px' }}>
+        <h1 style={{ fontSize: '2.4rem', fontWeight: 900, letterSpacing: '-0.04em', margin: '0 0 12px', color: '#ffffff' }}>
           Viralhoods Logo & Visual System
         </h1>
-        <p style={{ maxWidth: '640px', margin: '0 auto 28px', color: 'var(--fg-muted)', fontSize: '1.05rem', lineHeight: 1.6 }}>
+        <p style={{ maxWidth: '640px', margin: '0 auto 28px', color: '#cbd5e1', fontSize: '1.05rem', lineHeight: 1.6 }}>
           Designed around the high-impact tablet emblem: bold sky-cyan lettering with jet-black contour outlines on a pristine display canvas, accompanied by warm amber solar highlights.
         </p>
 

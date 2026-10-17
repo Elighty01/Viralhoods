@@ -4,26 +4,40 @@ import { Mail, CheckCircle2, ShieldCheck, Newspaper, Compass } from 'lucide-reac
 export const AboutView: React.FC = () => {
   return (
     <main className="w prose" style={{ margin: '36px auto 60px' }}>
-      <div style={{ marginBottom: '24px' }}>
+      <div
+        style={{
+          position: 'relative',
+          backgroundImage: `linear-gradient(90deg, rgba(9, 13, 22, 0.94) 0%, rgba(9, 13, 22, 0.85) 55%, rgba(9, 13, 22, 0.65) 100%), url('https://images.unsplash.com/photo-1526470608268-f674ce90ebd4?auto=format&fit=crop&w=1600&q=85')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          borderRadius: 'var(--radius-lg)',
+          padding: '40px 32px',
+          marginBottom: '36px',
+          border: '1px solid var(--line-strong)',
+          color: '#ffffff',
+          overflow: 'hidden',
+        }}
+      >
         <span
           style={{
-            color: 'var(--blue)',
+            color: 'var(--blue-vibrant)',
             fontWeight: 800,
-            fontSize: '0.82rem',
-            letterSpacing: '0.05em',
+            fontSize: '0.84rem',
+            letterSpacing: '0.06em',
             textTransform: 'uppercase',
             display: 'block',
-            marginBottom: '6px',
+            marginBottom: '8px',
           }}
         >
-          Editorial Principles
+          Editorial Principles & Mission
         </span>
-        <h1 style={{ margin: 0 }}>About Viralhoods</h1>
+        <h1 style={{ margin: '0 0 12px', fontSize: '2.4rem', fontWeight: 900, color: '#ffffff', letterSpacing: '-0.03em' }}>
+          About Viralhoods
+        </h1>
+        <p style={{ margin: 0, fontSize: '1.15rem', color: '#cbd5e1', lineHeight: 1.6, maxWidth: '720px' }}>
+          Cutting through algorithmic noise with verified, independent reporting and executive syntheses across ten global sectors.
+        </p>
       </div>
-
-      <p style={{ fontSize: '1.15rem', color: 'var(--fg-muted)', lineHeight: 1.6 }}>
-        Viralhoods is an independent modern news publication dedicated to cutting through information overload. We deliver short, verified, original syntheses of what is shaping the world in politics, finance, health, entertainment, research, science, AI, technology, and sports.
-      </p>
 
       <h2>Our Editorial Standards</h2>
       <p>

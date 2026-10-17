@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged, sendPasswordResetEmail, User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, addDoc, getDocs, query, orderBy, limit, setDoc, deleteDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -28,5 +28,5 @@ export async function testFirestoreConnection() {
 }
 testFirestoreConnection();
 
-export { fbSignOut, signInWithPopup, onAuthStateChanged };
+export { fbSignOut, signInWithPopup, onAuthStateChanged, sendPasswordResetEmail };
 export type { FirebaseUser };

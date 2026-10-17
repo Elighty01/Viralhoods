@@ -1,16 +1,114 @@
-import { User, Subscriber, NewsItem, RegisteredAccount, ADMIN_MASTER_PASSWORD } from '../types';
+import { User, Subscriber, NewsItem, RegisteredAccount, ADMIN_MASTER_PASSWORD, CHIEF_ADMIN_EMAIL, AdminMember } from '../types';
 
 const SUBSCRIBERS_KEY = 'viralhoods_subscribers';
 const USER_KEY = 'viralhoods_user';
 const BOOKMARKS_KEY = 'viralhoods_bookmarks';
 const CUSTOM_STORIES_KEY = 'viralhoods_custom_stories';
 const ACCOUNTS_KEY = 'viralhoods_registered_accounts';
+const ADMINS_KEY = 'viralhoods_admin_list';
 
 /**
  * Validates master admin password
  */
 export const verifyAdminPassword = (password: string): boolean => {
   return password.trim() === ADMIN_MASTER_PASSWORD;
+};
+
+/**
+ * Gets all appointed administrators
+ */
+export const getAdminMembers = (): AdminMember[] => {
+  const defaultChief: AdminMember = {
+    email: CHIEF_ADMIN_EMAIL,
+    name: 'Chief Administrator',
+    addedBy: 'System',
+    addedAt: '2026-01-01T00:00:00.000Z',
+    isChief: true,
+  };
+  try {
+    const raw = localStorage.getItem(ADMINS_KEY);
+    if (!raw) {
+      localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief]));
+      return [defaultChief];
+    }
+    const list: AdminMember[] = JSON.parse(raw);
+    if (!list.some((a) => a.email.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase())) {
+      const merged = [defaultChief, ...list];
+      localStorage.setItem(ADMINS_KEY, JSON.stringify(merged));
+      return merged;
+    }
+    return list;
+  } catch {
+    return [defaultChief];
+  }
+};
+
+/**
+ * Checks if email or username has admin privileges
+ */
+export const isUserAdmin = (emailOrUsername?: string | null): boolean => {
+  if (!emailOrUsername) return false;
+  const clean = emailOrUsername.trim().toLowerCase();
+  if (clean === CHIEF_ADMIN_EMAIL.toLowerCase()) return true;
+  const admins = getAdminMembers();
+  return admins.some((a) => a.email.toLowerCase() === clean);
+};
+
+/**
+ * Adds an appointed admin by Chief Admin
+ */
+export const addAdminMember = (
+  emailOrUsername: string,
+  addedBy: string = CHIEF_ADMIN_EMAIL
+): { success: boolean; message: string } => {
+  const clean = emailOrUsername.trim().toLowerCase();
+  if (!clean) return { success: false, message: 'Please enter a valid member email or username.' };
+  const current = getAdminMembers();
+  if (current.some((a) => a.email.toLowerCase() === clean)) {
+    return { success: false, message: `${clean} is already an administrator.` };
+  }
+  const newMember: AdminMember = {
+    email: clean,
+    name: clean.split('@')[0],
+    addedBy,
+    addedAt: new Date().toISOString(),
+    isChief: clean === CHIEF_ADMIN_EMAIL.toLowerCase(),
+  };
+  const updated = [...current, newMember];
+  localStorage.setItem(ADMINS_KEY, JSON.stringify(updated));
+
+  // Also update registered account if it exists
+  const accounts = getRegisteredAccounts();
+  const accIdx = accounts.findIndex((a) => a.usernameOrEmail.toLowerCase() === clean);
+  if (accIdx >= 0) {
+    accounts[accIdx].isAdmin = true;
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  }
+  return { success: true, message: `Successfully appointed ${clean} as an Administrator!` };
+};
+
+/**
+ * Removes an appointed admin
+ */
+export const removeAdminMember = (
+  emailOrUsername: string
+): { success: boolean; message: string } => {
+  const clean = emailOrUsername.trim().toLowerCase();
+  if (clean === CHIEF_ADMIN_EMAIL.toLowerCase()) {
+    return { success: false, message: 'The Chief Administrator (yussuftimi@gmail.com) cannot be removed.' };
+  }
+  const current = getAdminMembers();
+  const updated = current.filter((a) => a.email.toLowerCase() !== clean);
+  localStorage.setItem(ADMINS_KEY, JSON.stringify(updated));
+
+  // Also update registered account if it exists
+  const accounts = getRegisteredAccounts();
+  const accIdx = accounts.findIndex((a) => a.usernameOrEmail.toLowerCase() === clean);
+  if (accIdx >= 0) {
+    accounts[accIdx].isAdmin = false;
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  }
+  return { success: true, message: `Successfully removed admin privileges for ${clean}.` };
 };
 
 /**
@@ -36,6 +134,28 @@ export const findRegisteredAccount = (identifier: string): RegisteredAccount | n
 };
 
 /**
+ * Resets password for a registered member account
+ */
+export const resetAccountPassword = (
+  usernameOrEmail: string,
+  newPassword: string
+): { success: boolean; message: string } => {
+  const clean = usernameOrEmail.trim().toLowerCase();
+  if (!clean) return { success: false, message: 'Email or username is required.' };
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, message: 'New password must be at least 6 characters long.' };
+  }
+  const accounts = getRegisteredAccounts();
+  const idx = accounts.findIndex((a) => a.usernameOrEmail.toLowerCase() === clean);
+  if (idx < 0) {
+    return { success: false, message: 'No registered member account found with this username or email.' };
+  }
+  accounts[idx].password = newPassword;
+  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  return { success: true, message: 'Password has been reset successfully! You can now sign in with your new password.' };
+};
+
+/**
  * Registers a new member account with Gmail or username + password
  */
 export const registerAccount = (
@@ -56,7 +176,7 @@ export const registerAccount = (
     return { success: false, error: 'An account already exists with this username or email. Please sign in instead.' };
   }
 
-  const isAdmin = verifyAdminPassword(password);
+  const isAdmin = isUserAdmin(cleanId) || verifyAdminPassword(password);
 
   const newAccount: RegisteredAccount = {
     usernameOrEmail: cleanId,
@@ -95,17 +215,18 @@ export const verifyAccountCredentials = (
     return { success: false, error: 'Please enter your username or email address.' };
   }
 
-  // Check if master password is entered directly
+  // Check if master password or chief admin
   const isMasterPass = verifyAdminPassword(password);
+  const isChiefOrAdmin = isUserAdmin(cleanId);
 
   const account = findRegisteredAccount(cleanId);
   if (!account) {
-    // If entered master password, allow admin bypass or prompt registration
-    if (isMasterPass) {
+    // If entered master password or chief admin email, allow admin bypass or prompt registration
+    if (isMasterPass || isChiefOrAdmin) {
       const adminAcc: RegisteredAccount = {
         usernameOrEmail: cleanId,
         password,
-        name: 'Administrator',
+        name: cleanId === CHIEF_ADMIN_EMAIL ? 'Chief Administrator' : 'Administrator',
         createdAt: new Date().toISOString(),
         isAdmin: true,
       };
@@ -119,14 +240,14 @@ export const verifyAccountCredentials = (
 
   // Account exists, verify password
   if (account.password !== password && !isMasterPass) {
-    return { success: false, error: 'Incorrect password. Please try again.' };
+    return { success: false, error: 'Incorrect password. Please try again or use Forgot Password.' };
   }
 
   return {
     success: true,
     account: {
       ...account,
-      isAdmin: account.isAdmin || isMasterPass,
+      isAdmin: Boolean(account.isAdmin || isMasterPass || isChiefOrAdmin),
     },
   };
 };
@@ -148,10 +269,11 @@ export const setCurrentUser = (
   isAdmin: boolean = false
 ): User => {
   const clean = identifier.trim().toLowerCase();
+  const effectiveIsAdmin = Boolean(isAdmin || isUserAdmin(clean));
   const user: User = {
     email: clean,
     name: name?.trim() || clean.split('@')[0],
-    isAdmin,
+    isAdmin: effectiveIsAdmin,
   };
   try {
     localStorage.setItem(USER_KEY, JSON.stringify(user));

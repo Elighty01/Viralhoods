@@ -17,6 +17,7 @@ import {
   Gauge,
 } from 'lucide-react';
 import { SocialShareBar } from './SocialShareBar';
+import { NewsletterBanner } from './NewsletterBanner';
 
 interface ArticleViewProps {
   story: NewsItem;
@@ -401,24 +402,16 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
             variant="full"
           />
 
-          {/* In-Article Newsletter Signup */}
-          <div className="newsletter-banner" style={{ margin: '40px 0 30px' }}>
-            <div className="newsletter-content">
-              <h3>Stay ahead with the Viralhoods Daily</h3>
-              <p>
-                Get concise, high-impact syntheses of global shifts in your inbox every morning. No spam, ever.
-              </p>
-            </div>
-            <form className="newsletter-form" onSubmit={handleInlineSubscribe}>
-              <input
-                type="email"
-                placeholder="Enter your email"
-                required
-                value={newsletterEmail}
-                onChange={(e) => setNewsletterEmail(e.target.value)}
-              />
-              <button type="submit">Subscribe</button>
-            </form>
+          {/* In-Article Newsletter Banner */}
+          <div style={{ margin: '40px 0 30px' }}>
+            <NewsletterBanner
+              onSubscribe={(email) => {
+                onSubscribe(email);
+                setSubscribedToast(true);
+                setTimeout(() => setSubscribedToast(false), 4000);
+                return true;
+              }}
+            />
           </div>
 
           {subscribedToast && (

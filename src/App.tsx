@@ -50,6 +50,7 @@ export const App: React.FC = () => {
   // AI Drawers and Studio Modals
   const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
   const [isAiStudioOpen, setIsAiStudioOpen] = useState<boolean>(false);
+  const [pendingAiAction, setPendingAiAction] = useState<'chat' | 'studio' | null>(null);
 
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<string[]>([]);
@@ -263,7 +264,8 @@ export const App: React.FC = () => {
 
   const handleOpenAiAssistant = () => {
     if (!currentUser) {
-      handleOpenAuthWithMessage('Members Only: Please sign up or sign in to access the AI Intelligence Assistant.');
+      setPendingAiAction('chat');
+      handleOpenAuthWithMessage('Subscribers & Members Only: Please sign in or register your account to access the Viralhoods AI Intelligence Assistant.');
       return;
     }
     setIsAiChatOpen(true);
@@ -271,7 +273,8 @@ export const App: React.FC = () => {
 
   const handleOpenAiStudio = () => {
     if (!currentUser) {
-      handleOpenAuthWithMessage('Members Only: Please sign up or sign in to access the AI Media Studio.');
+      setPendingAiAction('studio');
+      handleOpenAuthWithMessage('Subscribers & Members Only: Please sign in or register your account to access the Viralhoods AI Media Studio.');
       return;
     }
     setIsAiStudioOpen(true);
@@ -306,6 +309,16 @@ export const App: React.FC = () => {
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user);
     setAuthPromptMessage(undefined);
+    setIsAuthOpen(false);
+
+    // If user clicked AI Assistant or AI Studio while unauthenticated, open it immediately
+    if (pendingAiAction === 'chat') {
+      setIsAiChatOpen(true);
+      setPendingAiAction(null);
+    } else if (pendingAiAction === 'studio') {
+      setIsAiStudioOpen(true);
+      setPendingAiAction(null);
+    }
   };
 
   const handleSignOut = async () => {

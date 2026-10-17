@@ -7,6 +7,17 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '25mb' }));
 
+// CORS & Preflight Middleware to prevent 405 Method Not Allowed
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // Shared Google GenAI client getter
 function getAiClient() {
   const apiKey = process.env.GEMINI_API_KEY || '';
@@ -307,8 +318,8 @@ app.post('/api/gemini/generate-music', async (req: Request, res: Response) => {
   }
 });
 
-// 8. Automated News Bot: Scrape & Generate at any time on demand
-app.post('/api/bot/scrape-generate', async (_req: Request, res: Response) => {
+// 8. Automated News Bot: Scrape & Generate at any time on demand (supports POST and GET)
+app.all('/api/bot/scrape-generate', async (_req: Request, res: Response) => {
   try {
     const { exec } = await import('child_process');
     const fs = await import('fs');

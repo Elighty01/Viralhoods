@@ -41,7 +41,16 @@ export interface RegisteredAccount {
   isAdmin?: boolean;
 }
 
+export const CHIEF_ADMIN_EMAIL = 'yussuftimi@gmail.com';
 export const ADMIN_MASTER_PASSWORD = '2026@Password';
+
+export interface AdminMember {
+  email: string;
+  name?: string;
+  addedBy: string;
+  addedAt: string;
+  isChief?: boolean;
+}
 
 export const CATEGORIES = [
   "World",

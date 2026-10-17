@@ -37,5 +37,10 @@ service cloud.firestore {
     match /ai_conversations/{convId} {
       allow read, write: if true;
     }
+
+    // Appointed Administrators
+    match /admins/{adminId} {
+      allow read, write: if true;
+    }
   }
 }

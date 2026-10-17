@@ -54,6 +54,28 @@
         "messages": { "type": "array" }
       },
       "required": ["userId", "updatedAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Appointed administrator role",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "addedBy": { "type": "string" },
+        "addedAt": { "type": "string" }
+      },
+      "required": ["email", "addedAt"]
+    },
+    "Member": {
+      "title": "Member",
+      "description": "Registered member profile",
+      "type": "object",
+      "properties": {
+        "identifier": { "type": "string" },
+        "lastActive": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["identifier"]
     }
   },
   "firestore": {
@@ -72,6 +94,14 @@
     "/ai_conversations/{convId}": {
       "schema": { "$ref": "entities/AiConversation" },
       "description": "Conversations with the AI news assistant"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "entities/Admin" },
+      "description": "Appointed administrators collection"
+    },
+    "/members/{memberId}": {
+      "schema": { "$ref": "entities/Member" },
+      "description": "Registered members and profiles"
     }
   }
 }

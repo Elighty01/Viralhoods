@@ -200,24 +200,27 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
       <div
         className="entertainment-banner"
         style={{
-          background: 'linear-gradient(135deg, rgba(2, 132, 199, 0.08) 0%, rgba(245, 158, 11, 0.08) 100%)',
-          border: '1px solid var(--line)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '24px',
-          marginBottom: '28px',
           position: 'relative',
+          backgroundImage: `linear-gradient(90deg, rgba(9, 13, 22, 0.94) 0%, rgba(9, 13, 22, 0.82) 55%, rgba(9, 13, 22, 0.65) 100%), url('https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=1600&q=85')`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          border: '1px solid var(--line-strong)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '28px 24px',
+          marginBottom: '28px',
+          color: '#ffffff',
           overflow: 'hidden',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', position: 'relative', zIndex: 2 }}>
           <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--blue)', fontWeight: 800, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: 'var(--blue-vibrant)', fontWeight: 800, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               <Sparkles size={16} /> Viralhoods Entertainment Portal & Download Center
             </div>
-            <h1 style={{ margin: '6px 0 8px', fontSize: '1.9rem', fontWeight: 900, fontFamily: 'var(--font-heading)' }}>
+            <h1 style={{ margin: '6px 0 8px', fontSize: '2rem', fontWeight: 900, fontFamily: 'var(--font-heading)', color: '#ffffff', letterSpacing: '-0.02em' }}>
               Trending Entertainment & Direct Downloads
             </h1>
-            <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.95rem', maxWidth: '650px' }}>
+            <p style={{ margin: 0, color: '#cbd5e1', fontSize: '0.96rem', maxWidth: '650px', lineHeight: 1.55 }}>
               Get verified, high-speed direct download links to the world’s most viral videos, chart-topping music, blockbuster movies & TV series, and bestselling novels.
             </p>
           </div>
@@ -235,6 +238,9 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                 fontWeight: 700,
                 padding: '8px 14px',
                 borderRadius: 'var(--radius-md)',
+                background: 'rgba(255, 255, 255, 0.1)',
+                color: '#ffffff',
+                borderColor: 'rgba(255, 255, 255, 0.25)',
               }}
             >
               <FileText size={15} /> Request a Link
