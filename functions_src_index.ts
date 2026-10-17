@@ -4,4 +4,4 @@ export {
   cleanHtml,
   sanitizeHtmlText,
   sanitizeNewsItem,
-} from './src_utils_sanitize';
+} from './src/utils/sanitize';
