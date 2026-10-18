@@ -30,7 +30,11 @@ import {
   Layers,
   ArrowRight,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  PlayCircle,
+  Tv,
+  Clapperboard,
+  Flame,
 } from 'lucide-react';
 
 export type EntertainmentSubpage = 'news' | 'videos' | 'music' | 'movies' | 'novels';
@@ -58,7 +62,10 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState<string>('All');
+  const [selectedSubtype, setSelectedSubtype] = useState<string>('all');
   const [activeModalItem, setActiveModalItem] = useState<EntertainmentDownloadItem | null>(null);
+  const [activeTrailerItem, setActiveTrailerItem] = useState<EntertainmentDownloadItem | null>(null);
+  const [newsTopicFilter, setNewsTopicFilter] = useState<string>('all');
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
@@ -70,6 +77,69 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
   const [requestCategory, setRequestCategory] = useState<'video' | 'music' | 'movie' | 'novel'>('movie');
   const [requestNote, setRequestNote] = useState('');
   const [requestSubmitted, setRequestSubmitted] = useState(false);
+
+  // Helper for subtype badge color
+  const getSubtypeBadgeColor = (subtype?: string) => {
+    switch (subtype) {
+      case 'anime':
+        return '#7c3aed'; // Purple
+      case 'series':
+        return '#0284c7'; // Sky Blue
+      case 'movie':
+        return '#ea580c'; // Vibrant Orange
+      case 'trailer':
+        return '#dc2626'; // Red
+      case 'concert':
+        return '#16a34a'; // Emerald
+      case 'podcast':
+        return '#d97706'; // Amber
+      case 'skit':
+        return '#e11d48'; // Rose
+      case 'manga':
+        return '#db2777'; // Pink
+      case 'novel':
+        return '#4f46e5'; // Indigo
+      case 'hiphop':
+        return '#b91c1c'; // Dark Red
+      case 'pop':
+        return '#ec4899'; // Hot Pink
+      case 'afrobeats':
+        return '#059669'; // Forest Green
+      default:
+        return 'rgba(0, 0, 0, 0.75)';
+    }
+  };
+
+  const getSubtypeLabel = (subtype?: string) => {
+    switch (subtype) {
+      case 'anime':
+        return 'Anime / Animation';
+      case 'series':
+        return 'TV Series';
+      case 'movie':
+        return 'Movie Blockbuster';
+      case 'trailer':
+        return 'Official Trailer';
+      case 'concert':
+        return 'Live Concert';
+      case 'podcast':
+        return 'Podcast & Tech';
+      case 'skit':
+        return 'Viral Video';
+      case 'manga':
+        return 'Manga';
+      case 'novel':
+        return 'Novel';
+      case 'hiphop':
+        return 'Hip-Hop';
+      case 'pop':
+        return 'Pop Music';
+      case 'afrobeats':
+        return 'Afrobeats';
+      default:
+        return subtype || 'Trending';
+    }
+  };
 
   // Filter downloadable items according to current subpage
   const targetType = useMemo(() => {
@@ -100,6 +170,8 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
     if (!targetType) return [];
     return ENTERTAINMENT_DOWNLOADS.filter((item) => {
       if (item.type !== targetType) return false;
+      const matchesSubtype =
+        selectedSubtype === 'all' || item.subtype === selectedSubtype;
       const matchesSearch =
         !searchQuery.trim() ||
         (item.title + ' ' + item.creator + ' ' + item.description + ' ' + item.genre)
@@ -107,9 +179,33 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
           .includes(searchQuery.trim().toLowerCase());
       const matchesGenre =
         selectedGenre === 'All' || item.genre.toLowerCase().includes(selectedGenre.toLowerCase());
-      return matchesSearch && matchesGenre;
+      return matchesSubtype && matchesSearch && matchesGenre;
     });
-  }, [targetType, searchQuery, selectedGenre]);
+  }, [targetType, searchQuery, selectedGenre, selectedSubtype]);
+
+  // Filtered entertainment news stories
+  const filteredNewsStories = useMemo(() => {
+    return entertainmentStories.filter((story) => {
+      if (newsTopicFilter === 'all') return true;
+      const text = (story.title + ' ' + (story.summary || '') + ' ' + (story.keyTakeaways?.join(' ') || '')).toLowerCase();
+      if (newsTopicFilter === 'cinema') {
+        return text.includes('box office') || text.includes('film') || text.includes('cinema') || text.includes('movie') || text.includes('gladiator') || text.includes('deadpool');
+      }
+      if (newsTopicFilter === 'anime') {
+        return text.includes('anime') || text.includes('manga') || text.includes('manhwa') || text.includes('demon slayer') || text.includes('frieren') || text.includes('arcane') || text.includes('solo leveling');
+      }
+      if (newsTopicFilter === 'series') {
+        return text.includes('series') || text.includes('emmy') || text.includes('shogun') || text.includes('severance') || text.includes('squid game');
+      }
+      if (newsTopicFilter === 'music') {
+        return text.includes('music') || text.includes('afrobeats') || text.includes('kendrick') || text.includes('stadium') || text.includes('grammy');
+      }
+      if (newsTopicFilter === 'gaming') {
+        return text.includes('gaming') || text.includes('gta') || text.includes('tech') || text.includes('youtube') || text.includes('video') || text.includes('trailer');
+      }
+      return true;
+    });
+  }, [entertainmentStories, newsTopicFilter]);
 
   // Audio preview handler
   const handleTogglePlayAudio = (item: EntertainmentDownloadItem) => {
@@ -166,6 +262,13 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
       setRequestTitle('');
       setRequestNote('');
     }, 2000);
+  };
+
+  const handleSelectSubpageTab = (subpage: EntertainmentSubpage) => {
+    setSelectedSubtype('all');
+    setSelectedGenre('All');
+    setSearchQuery('');
+    onSelectSubpage(subpage);
   };
 
   return (
@@ -281,7 +384,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
         >
           <button
             type="button"
-            onClick={() => onSelectSubpage('news')}
+            onClick={() => handleSelectSubpageTab('news')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -313,7 +416,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectSubpage('videos')}
+            onClick={() => handleSelectSubpageTab('videos')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -345,7 +448,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectSubpage('music')}
+            onClick={() => handleSelectSubpageTab('music')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -377,7 +480,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectSubpage('movies')}
+            onClick={() => handleSelectSubpageTab('movies')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -394,7 +497,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               transition: 'all 0.15s ease',
             }}
           >
-            <Film size={15} /> Movies & TV Series
+            <Film size={15} /> Movies, Series & Anime
             <span
               style={{
                 background: currentSubpage === 'movies' ? 'rgba(255,255,255,0.25)' : 'var(--line)',
@@ -409,7 +512,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
 
           <button
             type="button"
-            onClick={() => onSelectSubpage('novels')}
+            onClick={() => handleSelectSubpageTab('novels')}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -426,7 +529,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               transition: 'all 0.15s ease',
             }}
           >
-            <BookOpen size={15} /> Novels & E-Books
+            <BookOpen size={15} /> Novels, Manga & E-Books
             <span
               style={{
                 background: currentSubpage === 'novels' ? 'rgba(255,255,255,0.25)' : 'var(--line)',
@@ -465,18 +568,61 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
       {/* Subpage View Content */}
       {currentSubpage === 'news' ? (
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
               <TrendingUp size={18} color="var(--blue)" /> Latest Viral Stories in Entertainment
             </h2>
             <div style={{ fontSize: '0.85rem', color: 'var(--fg-muted)' }}>
-              Showing {entertainmentStories.length} curated stories
+              Showing {filteredNewsStories.length} of {entertainmentStories.length} curated stories
             </div>
           </div>
 
-          {entertainmentStories.length > 0 ? (
+          {/* News Topic Filters */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
+              marginBottom: '20px',
+              paddingBottom: '4px',
+            }}
+          >
+            {[
+              { id: 'all', label: 'All Viral Reports' },
+              { id: 'cinema', label: 'Cinema & Box Office' },
+              { id: 'anime', label: 'Anime & Manhwa' },
+              { id: 'series', label: 'TV Series & Streaming' },
+              { id: 'music', label: 'Music & Stadium Tours' },
+              { id: 'gaming', label: 'Gaming & Creators' },
+            ].map((topic) => (
+              <button
+                key={topic.id}
+                type="button"
+                onClick={() => setNewsTopicFilter(topic.id)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '16px',
+                  border: '1px solid',
+                  borderColor: newsTopicFilter === topic.id ? 'var(--blue)' : 'var(--line)',
+                  background: newsTopicFilter === topic.id ? 'var(--blue-tint)' : 'var(--bg-card)',
+                  color: newsTopicFilter === topic.id ? 'var(--blue)' : 'var(--fg-muted)',
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {topic.label}
+              </button>
+            ))}
+          </div>
+
+          {filteredNewsStories.length > 0 ? (
             <div className="news-grid">
-              {entertainmentStories.map((story) => (
+              {filteredNewsStories.map((story) => (
                 <NewsCard
                   key={story.id}
                   item={story}
@@ -488,13 +634,262 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
             </div>
           ) : (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--fg-muted)' }}>
-              No entertainment stories available in the active feed right now.
+              No entertainment stories match the selected topic filter.
             </div>
           )}
         </div>
       ) : (
         /* Downloadable Subpages (Videos, Music, Movies, Novels) */
         <div>
+          {/* Subtype Categories Bar */}
+          {currentSubpage === 'movies' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                marginBottom: '16px',
+              }}
+            >
+              {[
+                { id: 'all', label: 'All Cinema & Shows', icon: Film, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'movie').length },
+                { id: 'movie', label: 'Blockbuster Movies', icon: Clapperboard, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'movie' && d.subtype === 'movie').length },
+                { id: 'series', label: 'TV Series & Shows', icon: Tv, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'movie' && d.subtype === 'series').length },
+                { id: 'anime', label: 'Anime & Animations', icon: Sparkles, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'movie' && d.subtype === 'anime').length },
+              ].map((sub) => {
+                const IconComponent = sub.icon;
+                const isSelected = selectedSubtype === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSubtype(sub.id);
+                      setSelectedGenre('All');
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '16px',
+                      border: '1px solid',
+                      borderColor: isSelected ? 'var(--blue)' : 'var(--line)',
+                      background: isSelected ? 'var(--blue-tint)' : 'var(--bg-card)',
+                      color: isSelected ? 'var(--blue)' : 'var(--fg)',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <IconComponent size={14} />
+                    <span>{sub.label}</span>
+                    <span
+                      style={{
+                        background: isSelected ? 'rgba(2, 132, 199, 0.2)' : 'var(--line)',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {sub.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {currentSubpage === 'videos' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                marginBottom: '16px',
+              }}
+            >
+              {[
+                { id: 'all', label: 'All Videos', icon: Video, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'video').length },
+                { id: 'trailer', label: 'Official Trailers', icon: Clapperboard, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'video' && d.subtype === 'trailer').length },
+                { id: 'concert', label: 'Live Concerts', icon: Music, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'video' && d.subtype === 'concert').length },
+                { id: 'skit', label: 'Creators & Skits', icon: Flame, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'video' && d.subtype === 'skit').length },
+                { id: 'podcast', label: 'Podcasts & Tech', icon: Tv, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'video' && d.subtype === 'podcast').length },
+              ].map((sub) => {
+                const IconComponent = sub.icon;
+                const isSelected = selectedSubtype === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSubtype(sub.id);
+                      setSelectedGenre('All');
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '16px',
+                      border: '1px solid',
+                      borderColor: isSelected ? 'var(--blue)' : 'var(--line)',
+                      background: isSelected ? 'var(--blue-tint)' : 'var(--bg-card)',
+                      color: isSelected ? 'var(--blue)' : 'var(--fg)',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <IconComponent size={14} />
+                    <span>{sub.label}</span>
+                    <span
+                      style={{
+                        background: isSelected ? 'rgba(2, 132, 199, 0.2)' : 'var(--line)',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {sub.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {currentSubpage === 'music' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                marginBottom: '16px',
+              }}
+            >
+              {[
+                { id: 'all', label: 'All Music', icon: Music, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'music').length },
+                { id: 'hiphop', label: 'Hip-Hop & Rap', icon: Flame, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'music' && d.subtype === 'hiphop').length },
+                { id: 'pop', label: 'Pop & Global', icon: Sparkles, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'music' && d.subtype === 'pop').length },
+                { id: 'afrobeats', label: 'Afrobeats & Fusion', icon: Star, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'music' && d.subtype === 'afrobeats').length },
+              ].map((sub) => {
+                const IconComponent = sub.icon;
+                const isSelected = selectedSubtype === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSubtype(sub.id);
+                      setSelectedGenre('All');
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '16px',
+                      border: '1px solid',
+                      borderColor: isSelected ? 'var(--blue)' : 'var(--line)',
+                      background: isSelected ? 'var(--blue-tint)' : 'var(--bg-card)',
+                      color: isSelected ? 'var(--blue)' : 'var(--fg)',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <IconComponent size={14} />
+                    <span>{sub.label}</span>
+                    <span
+                      style={{
+                        background: isSelected ? 'rgba(2, 132, 199, 0.2)' : 'var(--line)',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {sub.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {currentSubpage === 'novels' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                overflowX: 'auto',
+                scrollbarWidth: 'none',
+                marginBottom: '16px',
+              }}
+            >
+              {[
+                { id: 'all', label: 'All Literature', icon: BookOpen, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'novel').length },
+                { id: 'novel', label: 'Bestseller Novels', icon: BookOpen, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'novel' && d.subtype === 'novel').length },
+                { id: 'manga', label: 'Manga & Light Novels', icon: Sparkles, count: ENTERTAINMENT_DOWNLOADS.filter(d => d.type === 'novel' && d.subtype === 'manga').length },
+              ].map((sub) => {
+                const IconComponent = sub.icon;
+                const isSelected = selectedSubtype === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedSubtype(sub.id);
+                      setSelectedGenre('All');
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '7px 14px',
+                      borderRadius: '16px',
+                      border: '1px solid',
+                      borderColor: isSelected ? 'var(--blue)' : 'var(--line)',
+                      background: isSelected ? 'var(--blue-tint)' : 'var(--bg-card)',
+                      color: isSelected ? 'var(--blue)' : 'var(--fg)',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <IconComponent size={14} />
+                    <span>{sub.label}</span>
+                    <span
+                      style={{
+                        background: isSelected ? 'rgba(2, 132, 199, 0.2)' : 'var(--line)',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {sub.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Filter Bar */}
           <div
             style={{
@@ -629,6 +1024,28 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                   >
                     {item.fileSize}
                   </div>
+
+                  {/* Subtype Badge */}
+                  {item.subtype && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: '10px',
+                        right: item.type === 'music' ? '56px' : '10px',
+                        background: getSubtypeBadgeColor(item.subtype),
+                        color: '#ffffff',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '0.70rem',
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.5)',
+                      }}
+                    >
+                      {getSubtypeLabel(item.subtype)}
+                    </div>
+                  )}
 
                   {/* Inline Audio Player Trigger for Music */}
                   {item.type === 'music' && (
@@ -780,6 +1197,29 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                       <Download size={15} /> Download ({item.fileSize})
                     </button>
 
+                    {(item.trailerYoutubeId || item.type === 'video') && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTrailerItem(item)}
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.1)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          borderRadius: 'var(--radius-sm)',
+                          color: '#ef4444',
+                          padding: '9px 11px',
+                          fontSize: '0.82rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                        title="Watch official trailer or video preview"
+                      >
+                        <PlayCircle size={15} /> Preview
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => setActiveModalItem(item)}
@@ -842,6 +1282,160 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Watch Trailer / Video Preview Modal */}
+      {activeTrailerItem && (
+        <div
+          className="modal-overlay"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(5px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+          onClick={() => setActiveTrailerItem(null)}
+        >
+          <div
+            className="modal-box"
+            style={{
+              background: '#0f172a',
+              color: '#f8fafc',
+              border: '1px solid rgba(255, 255, 255, 0.15)',
+              borderRadius: 'var(--radius-lg)',
+              width: '100%',
+              maxWidth: '780px',
+              overflow: 'hidden',
+              position: 'relative',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.65)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header bar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 18px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+                background: '#090d16',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <PlayCircle size={18} color="var(--sun)" />
+                <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#ffffff' }}>
+                  {activeTrailerItem.title}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTrailerItem(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Embedded Responsive Player */}
+            <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, background: '#000' }}>
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${activeTrailerItem.trailerYoutubeId || 'QdBZY2fkU-0'}?autoplay=1&rel=0`}
+                title={activeTrailerItem.title}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  border: 0,
+                }}
+              />
+            </div>
+
+            {/* Modal Bottom Actions */}
+            <div
+              style={{
+                padding: '16px 20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '12px',
+                background: '#090d16',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
+                  {activeTrailerItem.creator} • {activeTrailerItem.genre} • {activeTrailerItem.quality}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>
+                  Uncompressed master quality available via direct external download mirror.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const item = activeTrailerItem;
+                    setActiveTrailerItem(null);
+                    setActiveModalItem(item);
+                  }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: '#ffffff',
+                    padding: '8px 12px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Layers size={14} /> View Mirrors
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleInitiateDownload(activeTrailerItem)}
+                  style={{
+                    background: 'var(--blue)',
+                    border: 'none',
+                    borderRadius: 'var(--radius-sm)',
+                    color: '#ffffff',
+                    padding: '8px 14px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Download size={14} /> Download ({activeTrailerItem.fileSize})
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
