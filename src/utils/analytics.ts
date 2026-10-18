@@ -469,7 +469,7 @@ function computeFallbackSummary(visits: VisitEvent[]): AnalyticsSummary {
     views,
     uniqueVisitors: Math.round(views * 0.7),
     percent: Math.round((views / total) * 100),
-    type: 'sector',
+    type: 'sector' as PageVisitStat['type'],
   })).sort((a, b) => b.views - a.views);
 
   const countryCounts: Record<string, { count: number; countryCode: string }> = {};
