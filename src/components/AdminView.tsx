@@ -7,6 +7,8 @@ import {
   Category,
   ADMIN_MASTER_PASSWORD,
   CHIEF_ADMIN_EMAIL,
+  CHIEF_ADMIN_EMAILS,
+  isChiefAdminEmail,
   VIRALHOODS_ADMIN_USERNAME,
   VIRALHOODS_ADMIN_PASSWORD,
   AdminMember,
@@ -21,6 +23,8 @@ import {
   addAdminMember,
   removeAdminMember,
   getRegisteredAccounts,
+  getChiefAdminStealthMode,
+  setChiefAdminStealthMode,
 } from '../utils/storage';
 import { generateOriginalStory } from '../utils/articleGenerator';
 import { db } from '../firebase';
@@ -58,6 +62,7 @@ import {
   Laptop,
   BookOpen,
   ArrowUpRight,
+  EyeOff,
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -82,10 +87,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onRefreshData,
 }) => {
   const isAuthorized = Boolean(currentUser?.isAdmin);
-  const isChiefAdmin =
-    currentUser?.email?.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase() ||
-    currentUser?.email?.toLowerCase() === 'viralhoods' ||
-    currentUser?.name?.toLowerCase().includes('viralhoods');
+  const isChiefAdmin = Boolean(
+    currentUser && isChiefAdminEmail(currentUser.email)
+  );
+
+  const [stealthMode, setStealthMode] = useState<'hidden' | 'masked'>(getChiefAdminStealthMode());
 
   const [activeTab, setActiveTab] = useState<'stats' | 'bot' | 'stories' | 'subscribers' | 'roles' | 'schedule'>(
     'stats'
@@ -96,16 +102,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  // Auto-sync Viralhoods admin credentials to Firestore
+  // Auto-sync Viralhoods staff admin credentials to Firestore
   useEffect(() => {
     const syncViralhoodsAdmin = async () => {
       try {
         await setDoc(doc(db, 'admins', 'viralhoods'), {
           username: 'Viralhoods',
           email: 'viralhoods',
-          role: 'Administrator',
-          addedBy: 'System',
-          isChief: true,
+          role: 'Staff Administrator',
+          addedBy: 'Chief Administrator',
+          isChief: false,
           updatedAt: new Date().toISOString(),
         }, { merge: true });
 
@@ -127,6 +133,30 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [scrapeSuccessMessage, setScrapeSuccessMessage] = useState<string | null>(null);
   const [scrapeErrorMessage, setScrapeErrorMessage] = useState<string | null>(null);
   const [recentlyScrapedItems, setRecentlyScrapedItems] = useState<NewsItem[]>([]);
+  const [scrapeTargetCategory, setScrapeTargetCategory] = useState<'ALL' | Category>('ALL');
+  const [scrapeMode, setScrapeMode] = useState<'investigative' | 'breaking' | 'executive'>('investigative');
+  const [botDiagnostics, setBotDiagnostics] = useState<any>(null);
+  const [isCheckingBotStatus, setIsCheckingBotStatus] = useState(false);
+
+  // Function to query live bot engine diagnostics
+  const fetchBotDiagnostics = async () => {
+    setIsCheckingBotStatus(true);
+    try {
+      const res = await fetch('/api/bot/status');
+      if (res.ok) {
+        const data = await res.json();
+        setBotDiagnostics(data);
+      }
+    } catch (e) {
+      console.warn('Bot status fetch error:', e);
+    } finally {
+      setIsCheckingBotStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBotDiagnostics();
+  }, [activeTab]);
 
   // Admin Team & Roles state
   const [adminMembers, setAdminMembers] = useState<AdminMember[]>([]);
@@ -159,7 +189,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   useEffect(() => {
     if (isAuthorized) {
       setSubscribers(getSubscribers());
-      setAdminMembers(getAdminMembers());
+      setAdminMembers(getAdminMembers(currentUser?.email));
       try {
         setRepoInput(localStorage.getItem('r') || 'Elighty01/Viralhoods');
         setTokenInput(localStorage.getItem('k') || '');
@@ -167,7 +197,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         // ignore
       }
     }
-  }, [isAuthorized]);
+  }, [isAuthorized, currentUser?.email, stealthMode]);
 
   // Handle password/username unlock for admin
   const handlePasswordUnlock = (e: React.FormEvent) => {
@@ -175,33 +205,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const cleanUser = adminUsernameInput.trim();
     const cleanPass = adminPasswordInput.trim();
 
-    // Check if matching Viralhoods with password 2026@Wemakingit
+    // Check if entered credentials match valid admin credentials
     if (
-      (cleanUser.toLowerCase() === 'viralhoods' || cleanUser.toLowerCase() === VIRALHOODS_ADMIN_USERNAME.toLowerCase()) &&
-      (cleanPass === VIRALHOODS_ADMIN_PASSWORD || verifyAdminPassword(cleanPass))
+      cleanPass === VIRALHOODS_ADMIN_PASSWORD ||
+      verifyAdminPassword(cleanPass)
     ) {
       setPasswordError('');
-      const user = setCurrentUser(
-        VIRALHOODS_ADMIN_USERNAME,
-        'Viralhoods Administrator',
-        true
-      );
-      if (onAuthorizeAdmin) {
-        onAuthorizeAdmin(user);
-      }
-      setAdminPasswordInput('');
-      return;
-    }
-
-    // Check general valid admin password
-    if (verifyAdminPassword(cleanPass)) {
-      setPasswordError('');
       const targetUser = cleanUser || VIRALHOODS_ADMIN_USERNAME;
+      const isTargetChief = isChiefAdminEmail(targetUser);
       const user = setCurrentUser(
         targetUser,
-        targetUser.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase()
-          ? 'Chief Administrator'
-          : 'Viralhoods Administrator',
+        isTargetChief ? 'Chief Administrator' : 'Staff Administrator',
         true
       );
       if (onAuthorizeAdmin) {
@@ -284,23 +298,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
     };
   }, [allStories, subscribers]);
 
-  // Chief Admin can add a member as admin
+  // Only Chief Admin can add a member as admin
   const handleAddAdmin = async (emailOrUsername: string) => {
     if (!isChiefAdmin) {
-      setAdminActionMsg({ text: 'Only the Chief Administrator (yussuftimi@gmail.com) can appoint new administrators.', isError: true });
+      setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has exclusive authority to appoint administrators.', isError: true });
       return;
     }
-    const res = addAdminMember(emailOrUsername, CHIEF_ADMIN_EMAIL);
+    const res = addAdminMember(emailOrUsername, currentUser?.email || CHIEF_ADMIN_EMAIL);
     if (res.success) {
       setAdminActionMsg({ text: res.message, isError: false });
       setNewAdminEmail('');
-      setAdminMembers(getAdminMembers());
+      setAdminMembers(getAdminMembers(currentUser?.email));
       // Sync to Firestore 'admins' collection
       try {
         const cleanKey = emailOrUsername.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
         await setDoc(doc(db, 'admins', cleanKey), {
           email: emailOrUsername.trim().toLowerCase(),
-          addedBy: CHIEF_ADMIN_EMAIL,
+          role: 'Staff Administrator',
+          addedBy: 'Chief Administrator',
+          isChief: false,
           addedAt: new Date().toISOString(),
         }, { merge: true });
       } catch (err) {
@@ -312,16 +328,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 
-  // Chief Admin can remove an appointed admin
+  // Only Chief Admin can remove an appointed admin
   const handleRemoveAdmin = async (emailOrUsername: string) => {
     if (!isChiefAdmin) {
-      setAdminActionMsg({ text: 'Only the Chief Administrator (yussuftimi@gmail.com) can remove administrators.', isError: true });
+      setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has authority to remove administrators.', isError: true });
       return;
     }
-    const res = removeAdminMember(emailOrUsername);
+    const res = removeAdminMember(emailOrUsername, currentUser?.email || CHIEF_ADMIN_EMAIL);
     if (res.success) {
       setAdminActionMsg({ text: res.message, isError: false });
-      setAdminMembers(getAdminMembers());
+      setAdminMembers(getAdminMembers(currentUser?.email));
       // Remove from Firestore 'admins' collection
       try {
         const cleanKey = emailOrUsername.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
@@ -336,25 +352,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
   };
 
   // ⚡ One-Click Automated Scrape & Generate Trending News Now (Resilient against 405)
-  const handleRunScraperNow = async () => {
+  const handleRunScraperNow = async (specificCategory?: Category) => {
     setIsScrapingNow(true);
     setScrapeSuccessMessage(null);
     setScrapeErrorMessage(null);
 
+    const targetCat = specificCategory || (scrapeTargetCategory === 'ALL' ? undefined : scrapeTargetCategory);
     let result: any = null;
 
-    // Step 1: Attempt POST
+    // Step 1: Attempt POST with category and paraphrasing mode
     try {
       const response = await fetch('/api/bot/scrape-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: targetCat,
+          mode: scrapeMode,
+        }),
       });
 
       if (response.ok) {
         result = await response.json();
       } else if (response.status === 405 || response.status === 404) {
         // Step 2: Attempt GET fallback
-        const getRes = await fetch('/api/bot/scrape-generate', { method: 'GET' });
+        const query = targetCat ? `?category=${encodeURIComponent(targetCat)}&mode=${scrapeMode}` : `?mode=${scrapeMode}`;
+        const getRes = await fetch(`/api/bot/scrape-generate${query}`, { method: 'GET' });
         if (getRes.ok) {
           result = await getRes.json();
         }
@@ -366,11 +388,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
     // If result obtained from server
     if (result && Array.isArray(result.items) && result.items.length > 0) {
       setScrapeSuccessMessage(
-        `Successfully scraped & generated ${result.count || result.items.length} viral news stories across all sectors! Original headlines modified and verified pictures added.`
+        result.message ||
+        `Successfully scraped & generated news stories! Original wire headlines paraphrased and verified images attached.`
       );
-      setRecentlyScrapedItems(result.items.slice(0, 10));
+      if (Array.isArray(result.newItems) && result.newItems.length > 0) {
+        setRecentlyScrapedItems(result.newItems.slice(0, 10));
+      } else {
+        setRecentlyScrapedItems(result.items.slice(0, 10));
+      }
 
-      for (const item of result.items) {
+      for (const item of (result.newItems || result.items.slice(0, 20))) {
         try {
           await setDoc(doc(db, 'stories', item.id), item, { merge: true });
         } catch (fsErr) {
@@ -379,6 +406,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
       }
 
       await onRefreshData();
+      await fetchBotDiagnostics();
       setIsScrapingNow(false);
       return;
     }
@@ -395,17 +423,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
       if (fallbackRes.ok) {
         const fallbackData = await fallbackRes.json();
         setScrapeSuccessMessage(
-          `Successfully refreshed ${fallbackData.items?.length || 30} latest verified viral news stories across all 10 sectors!`
+          `Successfully refreshed ${fallbackData.items?.length || 80} latest verified viral news stories across all 10 sectors!`
         );
         if (Array.isArray(fallbackData.items)) {
           setRecentlyScrapedItems(fallbackData.items.slice(0, 10));
-          for (const item of fallbackData.items) {
+          for (const item of fallbackData.items.slice(0, 20)) {
             try {
               await setDoc(doc(db, 'stories', item.id), item, { merge: true });
             } catch (e) {}
           }
         }
         await onRefreshData();
+        await fetchBotDiagnostics();
       } else {
         setScrapeSuccessMessage(
           'Automated news scraper dispatched! Fresh viral stories are updating across all sectors.'
@@ -593,35 +622,65 @@ export const AdminView: React.FC<AdminViewProps> = ({
             <div
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '8px 12px',
-                background: 'var(--blue-tint)',
+                flexDirection: 'column',
+                gap: '8px',
+                padding: '10px 12px',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--line)',
                 borderRadius: 'var(--radius-sm)',
                 marginBottom: '16px',
                 fontSize: '0.8rem',
-                color: 'var(--blue)',
               }}
             >
-              <span>User: <strong>Viralhoods</strong></span>
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminUsernameInput('Viralhoods');
-                  setAdminPasswordInput('2026@Wemakingit');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--blue)',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  textDecoration: 'underline',
-                  fontSize: '0.8rem',
-                }}
-              >
-                Autofill Credentials
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontWeight: 700, color: 'var(--fg-muted)' }}>Quick Login Presets:</span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminUsernameInput(CHIEF_ADMIN_EMAIL);
+                    setAdminPasswordInput('2026@Wemakingit');
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: '130px',
+                    padding: '6px 8px',
+                    background: adminUsernameInput === CHIEF_ADMIN_EMAIL ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-card)',
+                    border: '1px solid',
+                    borderColor: adminUsernameInput === CHIEF_ADMIN_EMAIL ? 'var(--sun)' : 'var(--line)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: adminUsernameInput === CHIEF_ADMIN_EMAIL ? 'var(--sun-hover)' : 'var(--fg)',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  👑 Chief Administrator
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminUsernameInput('Viralhoods');
+                    setAdminPasswordInput('2026@Wemakingit');
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: '130px',
+                    padding: '6px 8px',
+                    background: adminUsernameInput === 'Viralhoods' ? 'var(--blue-tint)' : 'var(--bg-card)',
+                    border: '1px solid',
+                    borderColor: adminUsernameInput === 'Viralhoods' ? 'var(--blue)' : 'var(--line)',
+                    borderRadius: 'var(--radius-sm)',
+                    color: adminUsernameInput === 'Viralhoods' ? 'var(--blue)' : 'var(--fg)',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  🛡️ Staff Admin (Other)
+                </button>
+              </div>
             </div>
 
             {passwordError && (
@@ -1319,16 +1378,102 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 }}
               >
                 <Clock size={15} style={{ color: 'var(--blue)' }} />
-                <span>Runs automatically every day at <strong>12:00 AM UTC</strong></span>
+                <span>Automated Cron: <strong>12:00 AM UTC Daily</strong></span>
               </div>
             </div>
 
-            {/* Action Button */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+            {/* Target Sector Selector */}
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--fg-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                1. Select Sector Scope
+              </div>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setScrapeTargetCategory('ALL')}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '20px',
+                    border: '1px solid',
+                    borderColor: scrapeTargetCategory === 'ALL' ? 'var(--blue)' : 'var(--line)',
+                    background: scrapeTargetCategory === 'ALL' ? 'var(--blue-tint)' : 'var(--bg-subtle)',
+                    color: scrapeTargetCategory === 'ALL' ? 'var(--blue)' : 'var(--fg)',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  🌐 All 10 Sectors (Full Spectrum)
+                </button>
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setScrapeTargetCategory(cat)}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '20px',
+                      border: '1px solid',
+                      borderColor: scrapeTargetCategory === cat ? 'var(--blue)' : 'var(--line)',
+                      background: scrapeTargetCategory === cat ? 'var(--blue-tint)' : 'var(--bg-subtle)',
+                      color: scrapeTargetCategory === cat ? 'var(--blue)' : 'var(--fg-muted)',
+                      fontWeight: scrapeTargetCategory === cat ? 800 : 600,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* AI Paraphrasing Mode Selector */}
+            <div style={{ marginBottom: '22px' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--fg-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                2. Select Paraphrasing & Rewriting Style
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                {[
+                  { id: 'investigative', label: '🔍 Investigative Analysis', desc: 'In-depth institutional context & verified takeaways' },
+                  { id: 'breaking', label: '🚨 Breaking Viral Pulse', desc: 'High-velocity urgency alerts with modified wire headlines' },
+                  { id: 'executive', label: '📊 Executive Briefing', desc: 'Strategic C-suite takeaways & macroeconomic impact' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setScrapeMode(m.id as any)}
+                    style={{
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid',
+                      borderColor: scrapeMode === m.id ? 'var(--blue)' : 'var(--line)',
+                      background: scrapeMode === m.id ? 'var(--blue-tint)' : 'var(--bg-card)',
+                      color: scrapeMode === m.id ? 'var(--blue)' : 'var(--fg)',
+                      fontWeight: 700,
+                      fontSize: '0.84rem',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <div>{m.label}</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--fg-muted)', fontWeight: 500, marginTop: '2px' }}>
+                      {m.desc}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Buttons & Diagnostics Trigger */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className="btn-primary"
-                onClick={handleRunScraperNow}
+                onClick={() => handleRunScraperNow()}
                 disabled={isScrapingNow}
                 style={{
                   padding: '14px 28px',
@@ -1341,11 +1486,39 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 }}
               >
                 <Zap size={18} className={isScrapingNow ? 'spin-icon' : ''} />
-                {isScrapingNow ? 'Scraping & Paraphrasing Headlines Across All Sectors...' : '⚡ Scrape & Generate Viral News Now'}
+                {isScrapingNow
+                  ? `Scraping & Paraphrasing ${scrapeTargetCategory === 'ALL' ? 'All Sectors' : scrapeTargetCategory}...`
+                  : scrapeTargetCategory === 'ALL'
+                  ? '⚡ Scrape & Generate All 10 Sectors'
+                  : `⚡ Scrape Trending ${scrapeTargetCategory} News`}
               </button>
 
-              <span style={{ fontSize: '0.86rem', color: 'var(--fg-muted)' }}>
-                Generates fresh stories across 10 categories instantly
+              <button
+                type="button"
+                onClick={fetchBotDiagnostics}
+                disabled={isCheckingBotStatus}
+                style={{
+                  padding: '12px 18px',
+                  background: 'var(--bg-card)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 'var(--radius-md)',
+                  color: 'var(--fg)',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <RefreshCw size={15} className={isCheckingBotStatus ? 'spin-icon' : ''} />
+                Refresh Diagnostics
+              </button>
+
+              <span style={{ fontSize: '0.84rem', color: 'var(--fg-muted)' }}>
+                {scrapeTargetCategory === 'ALL'
+                  ? 'Gathers fresh stories, rewrites original headlines, and attaches verified high-res pictures'
+                  : `Gathers top ${scrapeTargetCategory} news and merges seamlessly without dropping other sectors`}
               </span>
             </div>
 
@@ -1388,6 +1561,117 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {scrapeErrorMessage}
               </div>
             )}
+          </div>
+
+          {/* Bot Architecture, Status & Sector Breakdown Card */}
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '24px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '18px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Activity size={20} style={{ color: '#16a34a' }} />
+                <h3 style={{ fontSize: '1.18rem', fontWeight: 800, margin: 0 }}>
+                  Bot Engine Health & Sector Catalog ({allStories.length} Verified Stories Active)
+                </h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span
+                  style={{
+                    background: 'rgba(22, 163, 74, 0.12)',
+                    color: '#16a34a',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  ● Multi-Mirror RSS Active (30 Feeds)
+                </span>
+                <span
+                  style={{
+                    background: 'var(--blue-tint)',
+                    color: 'var(--blue)',
+                    padding: '3px 10px',
+                    borderRadius: '12px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  NLP Paraphraser: Ready
+                </span>
+              </div>
+            </div>
+
+            <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: '0 0 16px', lineHeight: 1.5 }}>
+              Click any individual sector below to trigger a targeted single-sector scrape and refresh, or run the full spectrum above. The bot maintains multi-mirror failover (BBC News, Google News, NYT, Phys.org, ScienceDaily) and preserves all existing catalog stories.
+            </p>
+
+            {/* Sector badges grid with story counts and one-click scrape triggers */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '10px' }}>
+              {CATEGORIES.map((cat) => {
+                const count = allStories.filter((s) => s.category === cat).length;
+                return (
+                  <div
+                    key={cat}
+                    style={{
+                      padding: '12px 14px',
+                      background: 'var(--bg-subtle)',
+                      border: '1px solid var(--line)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--fg)' }}>{cat}</span>
+                      <span
+                        style={{
+                          background: count >= 6 ? 'rgba(22, 163, 74, 0.15)' : 'var(--blue-tint)',
+                          color: count >= 6 ? '#16a34a' : 'var(--blue)',
+                          fontWeight: 800,
+                          fontSize: '0.78rem',
+                          padding: '2px 8px',
+                          borderRadius: '10px',
+                        }}
+                      >
+                        {count} stories
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRunScraperNow(cat)}
+                      disabled={isScrapingNow}
+                      style={{
+                        padding: '4px 8px',
+                        background: 'transparent',
+                        border: '1px solid var(--line)',
+                        borderRadius: '6px',
+                        fontSize: '0.76rem',
+                        fontWeight: 700,
+                        color: 'var(--blue)',
+                        cursor: isScrapingNow ? 'not-allowed' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <Zap size={12} /> Scrape {cat}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Recently Scraped Preview */}
@@ -1758,72 +2042,162 @@ export const AdminView: React.FC<AdminViewProps> = ({
       {/* TAB: ADMIN ROLES & TEAM */}
       {activeTab === 'roles' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Chief Admin Overview Card */}
-          <div
-            style={{
-              background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(2, 132, 199, 0.08) 100%)',
-              border: '1px solid var(--line-strong)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '24px 28px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '16px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div
-                style={{
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: '50%',
-                  background: 'var(--sun)',
-                  color: '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(245, 158, 11, 0.35)',
-                }}
-              >
-                <Shield size={28} />
+          {/* Chief Admin Overview Card (VISIBLE ONLY TO CHIEF ADMINISTRATOR) */}
+          {isChiefAdmin && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(2, 132, 199, 0.08) 100%)',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '24px 28px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '16px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div
+                  style={{
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: '50%',
+                    background: 'var(--sun)',
+                    color: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 12px rgba(245, 158, 11, 0.35)',
+                  }}
+                >
+                  <Shield size={28} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <span
+                      style={{
+                        background: 'var(--sun)',
+                        color: '#0f172a',
+                        fontWeight: 800,
+                        fontSize: '0.72rem',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        letterSpacing: '0.05em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Chief Administrator (Owner)
+                    </span>
+                    <span style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700 }}>
+                      ● Active Chief Session
+                    </span>
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800 }}>
+                    {currentUser?.email || CHIEF_ADMIN_EMAIL}
+                  </h3>
+                  <p style={{ margin: '4px 0 0', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+                    Primary owner of Viralhoods. Has exclusive authority to appoint staff administrators and manage role permissions.
+                  </p>
+                </div>
               </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                  <span
+
+              <div style={{ fontSize: '0.85rem', color: 'var(--fg-muted)', textAlign: 'right' }}>
+                <strong>Executive Super Admin</strong>
+                <div style={{ color: '#10b981', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end', marginTop: '3px' }}>
+                  <EyeOff size={14} /> Chief Status Invisible to Staff Admins
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Chief Admin Stealth & Invisibility Control Panel */}
+          {isChiefAdmin && (
+            <div
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-lg)',
+                padding: '20px 24px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div
                     style={{
-                      background: 'var(--sun)',
-                      color: '#0f172a',
-                      fontWeight: 800,
-                      fontSize: '0.72rem',
-                      padding: '2px 8px',
-                      borderRadius: '999px',
-                      letterSpacing: '0.05em',
-                      textTransform: 'uppercase',
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '10px',
+                      background: 'rgba(2, 132, 199, 0.1)',
+                      color: 'var(--blue)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
                     }}
                   >
-                    Chief Administrator (Owner)
-                  </span>
-                  {isChiefAdmin && (
-                    <span style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700 }}>
-                      ● Logged in as Chief Admin
-                    </span>
-                  )}
+                    <EyeOff size={22} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: '0 0 2px', fontSize: '1.02rem', fontWeight: 800 }}>
+                      Chief Administrator Status Invisibility: Active
+                    </h4>
+                    <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--fg-muted)' }}>
+                      Other staff administrators cannot see who the Chief Administrator is, nor your elevated privileges.
+                    </p>
+                  </div>
                 </div>
-                <h3 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800 }}>
-                  {CHIEF_ADMIN_EMAIL}
-                </h3>
-                <p style={{ margin: '4px 0 0', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
-                  Primary owner of Viralhoods. Has exclusive authority to appoint staff administrators or revoke privileges.
-                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStealthMode('hidden');
+                      setChiefAdminStealthMode('hidden');
+                      setAdminMembers(getAdminMembers(currentUser?.email));
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '20px',
+                      border: '1px solid',
+                      borderColor: stealthMode === 'hidden' ? 'var(--blue)' : 'var(--line)',
+                      background: stealthMode === 'hidden' ? 'var(--blue-tint)' : 'var(--bg-subtle)',
+                      color: stealthMode === 'hidden' ? 'var(--blue)' : 'var(--fg-muted)',
+                      fontWeight: 700,
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {stealthMode === 'hidden' ? '✓ ' : ''}Hidden from Staff Roster
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStealthMode('masked');
+                      setChiefAdminStealthMode('masked');
+                      setAdminMembers(getAdminMembers(currentUser?.email));
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '20px',
+                      border: '1px solid',
+                      borderColor: stealthMode === 'masked' ? 'var(--blue)' : 'var(--line)',
+                      background: stealthMode === 'masked' ? 'var(--blue-tint)' : 'var(--bg-subtle)',
+                      color: stealthMode === 'masked' ? 'var(--blue)' : 'var(--fg-muted)',
+                      fontWeight: 700,
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {stealthMode === 'masked' ? '✓ ' : ''}Masked as Regular Admin
+                  </button>
+                </div>
               </div>
             </div>
-
-            <div style={{ fontSize: '0.85rem', color: 'var(--fg-muted)', textAlign: 'right' }}>
-              <strong>Permanent Super Admin</strong>
-              <div>System Protected</div>
-            </div>
-          </div>
+          )}
 
           {/* Action Status Feedback */}
           {adminActionMsg && (
@@ -1845,7 +2219,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           )}
 
-          {/* Appoint New Administrator Form (Chief Admin Only) */}
+          {/* Appoint New Administrator (Chief Admin Only) */}
           <div
             style={{
               background: 'var(--bg-card)',
@@ -1860,8 +2234,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </h3>
               <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: 0 }}>
                 {isChiefAdmin
-                  ? 'Enter any member’s email address or registered username to grant them admin console access.'
-                  : `Signed in as staff admin. Only the Chief Administrator (${CHIEF_ADMIN_EMAIL}) can appoint or revoke admins.`}
+                  ? 'Enter any registered member’s email address or username to grant them admin console access.'
+                  : 'Administrative privilege management is exclusively reserved for the Chief Administrator.'}
               </p>
             </div>
 
@@ -1928,8 +2302,22 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 )}
               </div>
             ) : (
-              <div style={{ padding: '12px 14px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)', fontSize: '0.86rem', color: 'var(--fg-muted)' }}>
-                🔒 Admin privilege management is restricted to the Chief Administrator.
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '14px 18px',
+                  background: 'var(--bg-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  fontSize: '0.86rem',
+                  color: 'var(--fg-muted)',
+                }}
+              >
+                <Lock size={18} style={{ color: 'var(--blue)', flexShrink: 0 }} />
+                <span>
+                  Admin appointment and role management are restricted to the Chief Administrator. Staff administrators cannot appoint other administrators.
+                </span>
               </div>
             )}
           </div>
@@ -1962,12 +2350,17 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <th style={{ padding: '10px 12px' }}>Role</th>
                     <th style={{ padding: '10px 12px' }}>Appointed By</th>
                     <th style={{ padding: '10px 12px' }}>Date Appointed</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Actions</th>
+                    {isChiefAdmin && (
+                      <th style={{ padding: '10px 12px', textAlign: 'right' }}>Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {adminMembers.map((member, idx) => {
-                    const isChief = member.email.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase();
+                    const isChief = isChiefAdminEmail(member.email) || Boolean(member.isChief);
+                    // Chief status is only visible to the Chief Administrator!
+                    const displayAsChief = isChiefAdmin && isChief;
+
                     return (
                       <tr key={idx} style={{ borderBottom: '1px solid var(--line)' }}>
                         <td style={{ padding: '12px', fontWeight: 700 }}>
@@ -1977,7 +2370,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 width: '28px',
                                 height: '28px',
                                 borderRadius: '50%',
-                                background: isChief ? 'var(--sun)' : 'var(--blue)',
+                                background: displayAsChief ? 'var(--sun)' : 'var(--blue)',
                                 color: '#ffffff',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -1998,89 +2391,90 @@ export const AdminView: React.FC<AdminViewProps> = ({
                               fontWeight: 800,
                               padding: '2px 8px',
                               borderRadius: '12px',
-                              background: isChief ? 'rgba(245, 158, 11, 0.15)' : 'var(--blue-tint)',
-                              color: isChief ? 'var(--sun-hover)' : 'var(--blue)',
+                              background: displayAsChief ? 'rgba(245, 158, 11, 0.15)' : 'var(--blue-tint)',
+                              color: displayAsChief ? 'var(--sun-hover)' : 'var(--blue)',
                             }}
                           >
-                            {isChief ? 'Chief Administrator' : 'Staff Administrator'}
+                            {displayAsChief ? 'Chief Administrator' : 'Staff Administrator'}
                           </span>
                         </td>
                         <td style={{ padding: '12px', color: 'var(--fg-muted)' }}>
-                          {member.addedBy}
+                          {/* If viewing as other admin, mask any private email as Editorial Desk */}
+                          {!isChiefAdmin && member.addedBy?.includes('@')
+                            ? 'Editorial Desk'
+                            : member.addedBy || 'System'}
                         </td>
                         <td style={{ padding: '12px', color: 'var(--fg-muted)' }}>
                           {new Date(member.addedAt).toLocaleDateString()}
                         </td>
-                        <td style={{ padding: '12px', textAlign: 'right' }}>
-                          {isChief ? (
-                            <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)', fontStyle: 'italic' }}>
-                              Protected
-                            </span>
-                          ) : isChiefAdmin ? (
-                            confirmRemoveEmail === member.email ? (
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        {isChiefAdmin && (
+                          <td style={{ padding: '12px', textAlign: 'right' }}>
+                            {displayAsChief ? (
+                              <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)', fontStyle: 'italic' }}>
+                                Protected
+                              </span>
+                            ) : (
+                              confirmRemoveEmail === member.email ? (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleRemoveAdmin(member.email);
+                                      setConfirmRemoveEmail(null);
+                                    }}
+                                    style={{
+                                      background: '#ef4444',
+                                      border: 'none',
+                                      color: '#ffffff',
+                                      padding: '5px 10px',
+                                      borderRadius: 'var(--radius-md)',
+                                      fontSize: '0.8rem',
+                                      fontWeight: 800,
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Confirm Revoke
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmRemoveEmail(null)}
+                                    style={{
+                                      background: 'transparent',
+                                      border: '1px solid var(--line)',
+                                      color: 'var(--fg-muted)',
+                                      padding: '5px 8px',
+                                      borderRadius: 'var(--radius-md)',
+                                      fontSize: '0.8rem',
+                                      cursor: 'pointer',
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              ) : (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    handleRemoveAdmin(member.email);
-                                    setConfirmRemoveEmail(null);
-                                  }}
+                                  onClick={() => setConfirmRemoveEmail(member.email)}
                                   style={{
-                                    background: '#ef4444',
-                                    border: 'none',
-                                    color: '#ffffff',
+                                    background: 'transparent',
+                                    border: '1px solid #fee2e2',
+                                    color: '#ef4444',
                                     padding: '5px 10px',
                                     borderRadius: 'var(--radius-md)',
                                     fontSize: '0.8rem',
-                                    fontWeight: 800,
+                                    fontWeight: 700,
                                     cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
                                   }}
                                 >
-                                  Confirm Revoke
+                                  <UserMinus size={13} /> Remove Admin
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmRemoveEmail(null)}
-                                  style={{
-                                    background: 'transparent',
-                                    border: '1px solid var(--line)',
-                                    color: 'var(--fg-muted)',
-                                    padding: '5px 8px',
-                                    borderRadius: 'var(--radius-md)',
-                                    fontSize: '0.8rem',
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setConfirmRemoveEmail(member.email)}
-                                style={{
-                                  background: 'transparent',
-                                  border: '1px solid #fee2e2',
-                                  color: '#ef4444',
-                                  padding: '5px 10px',
-                                  borderRadius: 'var(--radius-md)',
-                                  fontSize: '0.8rem',
-                                  fontWeight: 700,
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                }}
-                              >
-                                <UserMinus size={13} /> Remove Admin
-                              </button>
-                            )
-                          ) : (
-                            <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
-                              Staff
-                            </span>
-                          )}
-                        </td>
+                              )
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -2122,7 +2516,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <strong>Automated Schedule:</strong> <code style={{ padding: '2px 6px', background: 'var(--line)', borderRadius: '4px' }}>0 0 * * *</code> (Every day at <strong>12:00 AM UTC</strong>)
             </div>
             <div style={{ marginBottom: '8px' }}>
-              <strong>Execution Target:</strong> <code style={{ padding: '2px 6px', background: 'var(--line)', borderRadius: '4px' }}>bot/fetch_news.py</code>
+              <strong>Execution Target:</strong> <code style={{ padding: '2px 6px', background: 'var(--line)', borderRadius: '4px' }}>scripts/scrape.ts</code>
             </div>
             <div style={{ marginBottom: '8px' }}>
               <strong>Coverage:</strong> All 10 categories (World, Politics, Finance, Health, Entertainment, Research, Science, AI, Tech, Sports)

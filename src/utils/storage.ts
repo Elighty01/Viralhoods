@@ -6,6 +6,8 @@ import {
   ADMIN_MASTER_PASSWORD,
   ACCEPTED_ADMIN_PASSWORDS,
   CHIEF_ADMIN_EMAIL,
+  CHIEF_ADMIN_EMAILS,
+  isChiefAdminEmail,
   VIRALHOODS_ADMIN_USERNAME,
   VIRALHOODS_ADMIN_PASSWORD,
   AdminMember,
@@ -17,6 +19,7 @@ const BOOKMARKS_KEY = 'viralhoods_bookmarks';
 const CUSTOM_STORIES_KEY = 'viralhoods_custom_stories';
 const ACCOUNTS_KEY = 'viralhoods_registered_accounts';
 const ADMINS_KEY = 'viralhoods_admin_list';
+const CHIEF_STEALTH_KEY = 'viralhoods_chief_stealth_mode';
 
 /**
  * Validates master admin password
@@ -27,22 +30,46 @@ export const verifyAdminPassword = (password: string): boolean => {
 };
 
 /**
- * Gets all appointed administrators
+ * Chief Admin Stealth / Invisibility Mode
+ * 'hidden': Chief admin is omitted entirely from the staff roster view of other admins.
+ * 'masked': Chief admin appears in staff roster as a standard administrator with zero chief badges or indicators.
  */
-export const getAdminMembers = (): AdminMember[] => {
+export const getChiefAdminStealthMode = (): 'hidden' | 'masked' => {
+  try {
+    const val = localStorage.getItem(CHIEF_STEALTH_KEY);
+    if (val === 'masked') return 'masked';
+    return 'hidden'; // Default: completely invisible to other admins
+  } catch {
+    return 'hidden';
+  }
+};
+
+export const setChiefAdminStealthMode = (mode: 'hidden' | 'masked'): void => {
+  try {
+    localStorage.setItem(CHIEF_STEALTH_KEY, mode);
+  } catch (e) {
+    console.error('Failed to set stealth mode', e);
+  }
+};
+
+/**
+ * Internal raw list of all administrator entries
+ */
+export const getRawAdminList = (): AdminMember[] => {
   const defaultChief: AdminMember = {
     email: CHIEF_ADMIN_EMAIL,
     name: 'Chief Administrator',
     addedBy: 'System',
     addedAt: '2026-01-01T00:00:00.000Z',
     isChief: true,
+    invisibleToStaff: true,
   };
   const defaultViralhoods: AdminMember = {
     email: VIRALHOODS_ADMIN_USERNAME,
     name: 'Viralhoods Administrator',
     addedBy: 'System',
     addedAt: '2026-01-01T00:00:00.000Z',
-    isChief: true,
+    isChief: false,
   };
 
   try {
@@ -69,41 +96,88 @@ export const getAdminMembers = (): AdminMember[] => {
 };
 
 /**
+ * Gets appointed administrators, enforcing invisibility rules:
+ * - If the viewer IS the Chief Administrator: returns full authentic roster with Chief roles.
+ * - If the viewer is ANOTHER administrator: Chief Admin status is INVISIBLE (omitted or masked).
+ */
+export const getAdminMembers = (viewerEmailOrUsername?: string | null): AdminMember[] => {
+  const rawList = getRawAdminList();
+  const isChiefViewer = isChiefAdminEmail(viewerEmailOrUsername);
+
+  if (isChiefViewer) {
+    // Chief Administrator sees the true roster and identities
+    return rawList;
+  }
+
+  // For other admins: Chief Admin status is strictly invisible!
+  const stealthMode = getChiefAdminStealthMode();
+
+  if (stealthMode === 'hidden') {
+    // Completely hide Chief Administrator accounts from other staff administrators
+    return rawList.filter((member) => !isChiefAdminEmail(member.email) && !member.isChief);
+  }
+
+  // Masked mode: Render Chief Admin as a normal staff administrator without chief attributes
+  return rawList.map((member) => {
+    if (isChiefAdminEmail(member.email) || member.isChief) {
+      return {
+        ...member,
+        isChief: false,
+        name: 'Administrator',
+        addedBy: 'Editorial Desk',
+      };
+    }
+    return member;
+  });
+};
+
+/**
  * Checks if email or username has admin privileges
  */
 export const isUserAdmin = (emailOrUsername?: string | null): boolean => {
   if (!emailOrUsername) return false;
   const clean = emailOrUsername.trim().toLowerCase();
   if (
-    clean === CHIEF_ADMIN_EMAIL.toLowerCase() ||
+    isChiefAdminEmail(clean) ||
     clean === 'viralhoods' ||
     clean === VIRALHOODS_ADMIN_USERNAME.toLowerCase()
   ) {
     return true;
   }
-  const admins = getAdminMembers();
+  const admins = getRawAdminList();
   return admins.some((a) => a.email.toLowerCase() === clean);
 };
 
 /**
- * Adds an appointed admin by Chief Admin
+ * Adds an appointed admin.
+ * MANDATORY SECURITY RULE: Only the Chief Administrator can appoint administrators!
  */
 export const addAdminMember = (
   emailOrUsername: string,
-  addedBy: string = CHIEF_ADMIN_EMAIL
+  executorEmailOrUsername?: string | null
 ): { success: boolean; message: string } => {
   const clean = emailOrUsername.trim().toLowerCase();
   if (!clean) return { success: false, message: 'Please enter a valid member email or username.' };
-  const current = getAdminMembers();
+
+  // Only the Chief Administrator can appoint admins
+  if (!isChiefAdminEmail(executorEmailOrUsername)) {
+    return {
+      success: false,
+      message: 'Access denied: Only the Chief Administrator has the exclusive authority to appoint administrators.',
+    };
+  }
+
+  const current = getRawAdminList();
   if (current.some((a) => a.email.toLowerCase() === clean)) {
     return { success: false, message: `${clean} is already an administrator.` };
   }
+
   const newMember: AdminMember = {
     email: clean,
     name: clean.split('@')[0],
-    addedBy,
+    addedBy: 'Chief Administrator',
     addedAt: new Date().toISOString(),
-    isChief: clean === CHIEF_ADMIN_EMAIL.toLowerCase(),
+    isChief: false,
   };
   const updated = [...current, newMember];
   localStorage.setItem(ADMINS_KEY, JSON.stringify(updated));
@@ -119,16 +193,31 @@ export const addAdminMember = (
 };
 
 /**
- * Removes an appointed admin
+ * Removes an appointed admin.
+ * MANDATORY SECURITY RULE: Only the Chief Administrator can revoke administrator privileges!
  */
 export const removeAdminMember = (
-  emailOrUsername: string
+  emailOrUsername: string,
+  executorEmailOrUsername?: string | null
 ): { success: boolean; message: string } => {
   const clean = emailOrUsername.trim().toLowerCase();
-  if (clean === CHIEF_ADMIN_EMAIL.toLowerCase()) {
-    return { success: false, message: 'The Chief Administrator (yussuftimi@gmail.com) cannot be removed.' };
+
+  // Only the Chief Administrator can revoke admins
+  if (!isChiefAdminEmail(executorEmailOrUsername)) {
+    return {
+      success: false,
+      message: 'Access denied: Only the Chief Administrator has the exclusive authority to revoke administrators.',
+    };
   }
-  const current = getAdminMembers();
+
+  if (isChiefAdminEmail(clean)) {
+    return {
+      success: false,
+      message: 'Security restriction: The Chief Administrator account cannot be removed.',
+    };
+  }
+
+  const current = getRawAdminList();
   const updated = current.filter((a) => a.email.toLowerCase() !== clean);
   localStorage.setItem(ADMINS_KEY, JSON.stringify(updated));
 
@@ -302,7 +391,7 @@ export const verifyAccountCredentials = (
       const adminAcc: RegisteredAccount = {
         usernameOrEmail: cleanId,
         password,
-        name: cleanId === CHIEF_ADMIN_EMAIL ? 'Chief Administrator' : 'Administrator',
+        name: isChiefAdminEmail(cleanId) ? 'Chief Administrator' : 'Administrator',
         createdAt: new Date().toISOString(),
         isAdmin: true,
       };

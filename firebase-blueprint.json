@@ -57,12 +57,15 @@
     },
     "Admin": {
       "title": "Admin",
-      "description": "Appointed administrator role",
+      "description": "Appointed administrator role with Chief Administrator stealth control",
       "type": "object",
       "properties": {
         "email": { "type": "string" },
         "addedBy": { "type": "string" },
-        "addedAt": { "type": "string" }
+        "addedAt": { "type": "string" },
+        "role": { "type": "string" },
+        "isChief": { "type": "boolean" },
+        "invisibleToStaff": { "type": "boolean" }
       },
       "required": ["email", "addedAt"]
     },
@@ -76,6 +79,25 @@
         "type": { "type": "string" }
       },
       "required": ["identifier"]
+    },
+    "VisitEvent": {
+      "title": "VisitEvent",
+      "description": "Anonymous reader visitor session and pageview tracking event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "visitorId": { "type": "string" },
+        "page": { "type": "string" },
+        "path": { "type": "string" },
+        "country": { "type": "string" },
+        "city": { "type": "string" },
+        "countryCode": { "type": "string" },
+        "device": { "type": "string" },
+        "browser": { "type": "string" },
+        "os": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["visitorId", "page", "timestamp"]
     }
   },
   "firestore": {
@@ -102,6 +124,10 @@
     "/members/{memberId}": {
       "schema": { "$ref": "entities/Member" },
       "description": "Registered members and profiles"
+    },
+    "/analytics_visits/{visitId}": {
+      "schema": { "$ref": "entities/VisitEvent" },
+      "description": "Visitor traffic and pageview events with location metadata"
     }
   }
 }

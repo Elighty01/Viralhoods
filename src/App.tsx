@@ -24,6 +24,7 @@ import {
   deleteCustomStory,
   addSubscriber,
 } from './utils/storage';
+import { trackPageVisit } from './utils/analytics';
 import { sanitizeNewsItem } from './utils/sanitize';
 import initialNewsData from '../data/news.json';
 
@@ -190,6 +191,53 @@ export const App: React.FC = () => {
       window.removeEventListener('hashchange', handleHashChange);
     };
   }, [handleHashChange]);
+
+  // Track each page visit in real-time for comprehensive Admin analytics
+  useEffect(() => {
+    let pageName = 'Home Feed (All 10 Sectors)';
+    let path = window.location.hash || '#all';
+    let category: string | undefined = undefined;
+    let storyTitle: string | undefined = undefined;
+
+    if (view === 'story') {
+      storyTitle = currentActiveStory?.title || (activeStoryId ? `Story #${activeStoryId}` : 'Featured Article');
+      pageName = `Story: ${storyTitle}`;
+      category = currentActiveStory?.category;
+      path = `#story-${activeStoryId}`;
+    } else if (view === 'about') {
+      pageName = 'About Viralhoods';
+      path = '#about';
+    } else if (view === 'brand') {
+      pageName = 'Brand & Logo Kit';
+      path = '#brand';
+    } else if (view === 'admin') {
+      pageName = 'Admin Editorial Console';
+      path = '#admin';
+    } else if (view === 'feed') {
+      if (showOnlyBookmarks) {
+        pageName = 'Saved Bookmarks';
+        path = '#saved';
+      } else if (currentCategory === 'Entertainment') {
+        pageName = `Entertainment Hub (${entertainmentSubpage || 'news'})`;
+        category = 'Entertainment';
+        path = `#entertainment/${entertainmentSubpage || 'news'}`;
+      } else if (currentCategory === 'All') {
+        pageName = 'Home Feed (All 10 Sectors)';
+        category = 'All';
+        path = '#all';
+      } else {
+        pageName = `${currentCategory} Sector`;
+        category = currentCategory;
+        path = `#${currentCategory.toLowerCase()}`;
+      }
+    }
+
+    trackPageVisit(pageName, path, {
+      storyId: activeStoryId || undefined,
+      storyTitle,
+      category,
+    });
+  }, [view, currentCategory, entertainmentSubpage, activeStoryId, showOnlyBookmarks, currentActiveStory]);
 
   // Fetch latest data from /data/news.json & Firestore database
   const fetchNews = useCallback(async () => {

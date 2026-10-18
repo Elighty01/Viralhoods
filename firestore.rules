@@ -2,25 +2,40 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isAuthenticated() {
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    // Stories: Publicly readable by all visitors; writable by editorial sessions & automated bot
+    // Chief Administrator verification
+    function isChiefAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'tobionlyn@gmail.com' ||
+        request.auth.token.email == 'yussuftimi@gmail.com'
+      );
+    }
+
+    // Appointed administrator check
+    function isAdmin() {
+      return isSignedIn() && (
+        isChiefAdmin() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Stories: Publicly readable; editable by editorial sessions
     match /stories/{storyId} {
       allow read: if true;
       allow write: if true;
     }
 
-    // System status & bot execution metadata
+    // System status & scraper bot execution metadata
     match /system/{docId} {
       allow read, write: if true;
     }
 
     // Subscribers: Anyone can join the newsletter
     match /subscribers/{subscriberId} {
-      allow create, write: if true;
-      allow read, delete, update: if true;
+      allow create, read, update, delete: if true;
     }
 
     // Member Profiles
@@ -38,8 +53,15 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // Appointed Administrators
+    // Appointed Administrators:
+    // Only the Chief Administrator has authority to appoint or revoke administrator credentials!
     match /admins/{adminId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Website Visitor Telemetry & Page Tracking:
+    match /analytics_visits/{visitId} {
       allow read, write: if true;
     }
   }

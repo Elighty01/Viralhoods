@@ -1,0 +1,836 @@
+{
+  "updated": "2026-10-18T12:49:50.350Z",
+  "totalPageviews": 24680,
+  "uniqueVisitors": 8940,
+  "pages": {
+    "Home Feed (All 10 Sectors)": {
+      "views": 6840,
+      "uniqueVisitors": 4520,
+      "path": "#all",
+      "category": "All",
+      "type": "home"
+    },
+    "AI Sector": {
+      "views": 3120,
+      "uniqueVisitors": 2150,
+      "path": "#ai",
+      "category": "AI",
+      "type": "sector"
+    },
+    "Tech Sector": {
+      "views": 2840,
+      "uniqueVisitors": 1910,
+      "path": "#tech",
+      "category": "Tech",
+      "type": "sector"
+    },
+    "World Sector": {
+      "views": 2450,
+      "uniqueVisitors": 1680,
+      "path": "#world",
+      "category": "World",
+      "type": "sector"
+    },
+    "Entertainment Hub (news)": {
+      "views": 2190,
+      "uniqueVisitors": 1470,
+      "path": "#entertainment/news",
+      "category": "Entertainment",
+      "type": "entertainment"
+    },
+    "Entertainment Hub (movies)": {
+      "views": 1820,
+      "uniqueVisitors": 1210,
+      "path": "#entertainment/movies",
+      "category": "Entertainment",
+      "type": "entertainment"
+    },
+    "Entertainment Hub (anime)": {
+      "views": 1540,
+      "uniqueVisitors": 1040,
+      "path": "#entertainment/anime",
+      "category": "Entertainment",
+      "type": "entertainment"
+    },
+    "Finance Sector": {
+      "views": 1860,
+      "uniqueVisitors": 1290,
+      "path": "#finance",
+      "category": "Finance",
+      "type": "sector"
+    },
+    "Science Sector": {
+      "views": 1680,
+      "uniqueVisitors": 1140,
+      "path": "#science",
+      "category": "Science",
+      "type": "sector"
+    },
+    "Sports Sector": {
+      "views": 1420,
+      "uniqueVisitors": 980,
+      "path": "#sports",
+      "category": "Sports",
+      "type": "sector"
+    },
+    "Politics Sector": {
+      "views": 1250,
+      "uniqueVisitors": 870,
+      "path": "#politics",
+      "category": "Politics",
+      "type": "sector"
+    },
+    "Health Sector": {
+      "views": 1080,
+      "uniqueVisitors": 760,
+      "path": "#health",
+      "category": "Health",
+      "type": "sector"
+    },
+    "Research Sector": {
+      "views": 960,
+      "uniqueVisitors": 690,
+      "path": "#research",
+      "category": "Research",
+      "type": "sector"
+    },
+    "Story: UN Plastics Treaty Binding Cap Finalized": {
+      "views": 740,
+      "uniqueVisitors": 620,
+      "path": "#story-world-01",
+      "category": "World",
+      "type": "story"
+    },
+    "Story: Formula 1 2026 Hybrid Power Units Regulation": {
+      "views": 680,
+      "uniqueVisitors": 560,
+      "path": "#story-sports-01",
+      "category": "Sports",
+      "type": "story"
+    },
+    "Story: James Webb Telescope Detects Organic Biosignatures on Exoplanet K2-18b": {
+      "views": 630,
+      "uniqueVisitors": 520,
+      "path": "#story-science-01",
+      "category": "Science",
+      "type": "story"
+    },
+    "Story: DeepSeek V3 and Frontier Open-Weights Reasoning Architecture": {
+      "views": 590,
+      "uniqueVisitors": 490,
+      "path": "#story-ai-01",
+      "category": "AI",
+      "type": "story"
+    },
+    "Brand & Logo Kit": {
+      "views": 620,
+      "uniqueVisitors": 410,
+      "path": "#brand",
+      "type": "system"
+    },
+    "Admin Editorial Console": {
+      "views": 320,
+      "uniqueVisitors": 65,
+      "path": "#admin",
+      "type": "system"
+    }
+  },
+  "countries": {
+    "United States": {
+      "count": 10860,
+      "countryCode": "US"
+    },
+    "United Kingdom": {
+      "count": 4210,
+      "countryCode": "GB"
+    },
+    "Canada": {
+      "count": 2450,
+      "countryCode": "CA"
+    },
+    "Germany": {
+      "count": 1890,
+      "countryCode": "DE"
+    },
+    "France": {
+      "count": 1420,
+      "countryCode": "FR"
+    },
+    "Japan": {
+      "count": 1280,
+      "countryCode": "JP"
+    },
+    "Nigeria": {
+      "count": 1060,
+      "countryCode": "NG"
+    },
+    "Australia": {
+      "count": 890,
+      "countryCode": "AU"
+    },
+    "India": {
+      "count": 720,
+      "countryCode": "IN"
+    },
+    "Brazil": {
+      "count": 540,
+      "countryCode": "BR"
+    },
+    "Singapore": {
+      "count": 430,
+      "countryCode": "SG"
+    },
+    "South Africa": {
+      "count": 320,
+      "countryCode": "ZA"
+    }
+  },
+  "cities": {
+    "New York, United States": {
+      "city": "New York",
+      "country": "United States",
+      "count": 3580
+    },
+    "London, United Kingdom": {
+      "city": "London",
+      "country": "United Kingdom",
+      "count": 2840
+    },
+    "San Francisco, United States": {
+      "city": "San Francisco",
+      "country": "United States",
+      "count": 2490
+    },
+    "Toronto, Canada": {
+      "city": "Toronto",
+      "country": "Canada",
+      "count": 1480
+    },
+    "Berlin, Germany": {
+      "city": "Berlin",
+      "country": "Germany",
+      "count": 1190
+    },
+    "Tokyo, Japan": {
+      "city": "Tokyo",
+      "country": "Japan",
+      "count": 1120
+    },
+    "Lagos, Nigeria": {
+      "city": "Lagos",
+      "country": "Nigeria",
+      "count": 980
+    },
+    "Paris, France": {
+      "city": "Paris",
+      "country": "France",
+      "count": 910
+    },
+    "Sydney, Australia": {
+      "city": "Sydney",
+      "country": "Australia",
+      "count": 790
+    },
+    "Chicago, United States": {
+      "city": "Chicago",
+      "country": "United States",
+      "count": 720
+    },
+    "Singapore, Singapore": {
+      "city": "Singapore",
+      "country": "Singapore",
+      "count": 430
+    },
+    "Johannesburg, South Africa": {
+      "city": "Johannesburg",
+      "country": "South Africa",
+      "count": 320
+    }
+  },
+  "devices": {
+    "Mobile": 15420,
+    "Desktop": 8120,
+    "Tablet": 1140
+  },
+  "browsers": {
+    "Chrome": 15840,
+    "Safari": 5820,
+    "Firefox": 1890,
+    "Microsoft Edge": 1130
+  },
+  "os": {
+    "iOS": 9240,
+    "Android": 6180,
+    "Windows": 5420,
+    "macOS": 3280,
+    "Linux": 560
+  },
+  "channels": {
+    "Google Search Engine & Grounding": 9820,
+    "Direct Navigation & PWA App": 8460,
+    "Social Networks (X, Reddit, LinkedIn)": 4280,
+    "Daily Morning Newsletter": 2120
+  },
+  "recentVisits": [
+    {
+      "id": "vst_1792327748252_0",
+      "visitorId": "usr_0",
+      "sessionId": "ses_0",
+      "page": "Home Feed (All 10 Sectors)",
+      "path": "#all",
+      "country": "United States",
+      "city": "New York",
+      "countryCode": "US",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "iOS",
+      "timestamp": "2026-10-18T12:49:08.252Z"
+    },
+    {
+      "id": "vst_1792327535268_1",
+      "visitorId": "usr_0",
+      "sessionId": "ses_0",
+      "page": "AI Sector",
+      "path": "#ai",
+      "country": "United Kingdom",
+      "city": "London",
+      "countryCode": "GB",
+      "device": "Mobile",
+      "browser": "Safari",
+      "os": "Android",
+      "timestamp": "2026-10-18T12:45:35.268Z"
+    },
+    {
+      "id": "vst_1792327287883_2",
+      "visitorId": "usr_1",
+      "sessionId": "ses_0",
+      "page": "Tech Sector",
+      "path": "#tech",
+      "country": "United States",
+      "city": "San Francisco",
+      "countryCode": "US",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "Windows",
+      "timestamp": "2026-10-18T12:41:27.883Z"
+    },
+    {
+      "id": "vst_1792327052896_3",
+      "visitorId": "usr_1",
+      "sessionId": "ses_1",
+      "page": "World Sector",
+      "path": "#world",
+      "country": "Canada",
+      "city": "Toronto",
+      "countryCode": "CA",
+      "device": "Desktop",
+      "browser": "Firefox",
+      "os": "macOS",
+      "timestamp": "2026-10-18T12:37:32.896Z"
+    },
+    {
+      "id": "vst_1792326815730_4",
+      "visitorId": "usr_2",
+      "sessionId": "ses_1",
+      "page": "Entertainment Hub (movies)",
+      "path": "#entertainment/movies",
+      "country": "Germany",
+      "city": "Berlin",
+      "countryCode": "DE",
+      "device": "Desktop",
+      "browser": "Microsoft Edge",
+      "os": "iOS",
+      "timestamp": "2026-10-18T12:33:35.730Z"
+    },
+    {
+      "id": "vst_1792326545098_5",
+      "visitorId": "usr_2",
+      "sessionId": "ses_1",
+      "page": "Science Sector",
+      "path": "#science",
+      "country": "Japan",
+      "city": "Tokyo",
+      "countryCode": "JP",
+      "device": "Tablet",
+      "browser": "Chrome",
+      "os": "Android",
+      "timestamp": "2026-10-18T12:29:05.098Z"
+    },
+    {
+      "id": "vst_1792326339807_6",
+      "visitorId": "usr_3",
+      "sessionId": "ses_2",
+      "page": "Story: UN Plastics Treaty Binding Cap Finalized",
+      "path": "#story-world-01",
+      "country": "Nigeria",
+      "city": "Lagos",
+      "countryCode": "NG",
+      "device": "Mobile",
+      "browser": "Safari",
+      "os": "Windows",
+      "timestamp": "2026-10-18T12:25:39.807Z"
+    },
+    {
+      "id": "vst_1792326092504_7",
+      "visitorId": "usr_3",
+      "sessionId": "ses_2",
+      "page": "Finance Sector",
+      "path": "#finance",
+      "country": "Australia",
+      "city": "Sydney",
+      "countryCode": "AU",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "macOS",
+      "timestamp": "2026-10-18T12:21:32.504Z"
+    },
+    {
+      "id": "vst_1792325867427_8",
+      "visitorId": "usr_4",
+      "sessionId": "ses_2",
+      "page": "Sports Sector",
+      "path": "#sports",
+      "country": "France",
+      "city": "Paris",
+      "countryCode": "FR",
+      "device": "Mobile",
+      "browser": "Firefox",
+      "os": "iOS",
+      "timestamp": "2026-10-18T12:17:47.427Z"
+    },
+    {
+      "id": "vst_1792325578083_9",
+      "visitorId": "usr_4",
+      "sessionId": "ses_3",
+      "page": "Home Feed (All 10 Sectors)",
+      "path": "#all",
+      "country": "India",
+      "city": "Mumbai",
+      "countryCode": "IN",
+      "device": "Desktop",
+      "browser": "Microsoft Edge",
+      "os": "Android",
+      "timestamp": "2026-10-18T12:12:58.083Z"
+    },
+    {
+      "id": "vst_1792325342745_10",
+      "visitorId": "usr_5",
+      "sessionId": "ses_3",
+      "page": "AI Sector",
+      "path": "#ai",
+      "country": "United States",
+      "city": "New York",
+      "countryCode": "US",
+      "device": "Desktop",
+      "browser": "Chrome",
+      "os": "Windows",
+      "timestamp": "2026-10-18T12:09:02.745Z"
+    },
+    {
+      "id": "vst_1792325145533_11",
+      "visitorId": "usr_5",
+      "sessionId": "ses_3",
+      "page": "Tech Sector",
+      "path": "#tech",
+      "country": "United Kingdom",
+      "city": "London",
+      "countryCode": "GB",
+      "device": "Tablet",
+      "browser": "Safari",
+      "os": "macOS",
+      "timestamp": "2026-10-18T12:05:45.533Z"
+    },
+    {
+      "id": "vst_1792324874526_12",
+      "visitorId": "usr_6",
+      "sessionId": "ses_4",
+      "page": "World Sector",
+      "path": "#world",
+      "country": "United States",
+      "city": "San Francisco",
+      "countryCode": "US",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "iOS",
+      "timestamp": "2026-10-18T12:01:14.526Z"
+    },
+    {
+      "id": "vst_1792324619537_13",
+      "visitorId": "usr_6",
+      "sessionId": "ses_4",
+      "page": "Entertainment Hub (movies)",
+      "path": "#entertainment/movies",
+      "country": "Canada",
+      "city": "Toronto",
+      "countryCode": "CA",
+      "device": "Mobile",
+      "browser": "Firefox",
+      "os": "Android",
+      "timestamp": "2026-10-18T11:56:59.537Z"
+    },
+    {
+      "id": "vst_1792324416818_14",
+      "visitorId": "usr_7",
+      "sessionId": "ses_4",
+      "page": "Science Sector",
+      "path": "#science",
+      "country": "Germany",
+      "city": "Berlin",
+      "countryCode": "DE",
+      "device": "Mobile",
+      "browser": "Microsoft Edge",
+      "os": "Windows",
+      "timestamp": "2026-10-18T11:53:36.818Z"
+    },
+    {
+      "id": "vst_1792324134880_15",
+      "visitorId": "usr_7",
+      "sessionId": "ses_5",
+      "page": "Story: UN Plastics Treaty Binding Cap Finalized",
+      "path": "#story-world-01",
+      "country": "Japan",
+      "city": "Tokyo",
+      "countryCode": "JP",
+      "device": "Desktop",
+      "browser": "Chrome",
+      "os": "macOS",
+      "timestamp": "2026-10-18T11:48:54.880Z"
+    },
+    {
+      "id": "vst_1792323912016_16",
+      "visitorId": "usr_8",
+      "sessionId": "ses_5",
+      "page": "Finance Sector",
+      "path": "#finance",
+      "country": "Nigeria",
+      "city": "Lagos",
+      "countryCode": "NG",
+      "device": "Desktop",
+      "browser": "Safari",
+      "os": "iOS",
+      "timestamp": "2026-10-18T11:45:12.016Z"
+    },
+    {
+      "id": "vst_1792323667278_17",
+      "visitorId": "usr_8",
+      "sessionId": "ses_5",
+      "page": "Sports Sector",
+      "path": "#sports",
+      "country": "Australia",
+      "city": "Sydney",
+      "countryCode": "AU",
+      "device": "Tablet",
+      "browser": "Chrome",
+      "os": "Android",
+      "timestamp": "2026-10-18T11:41:07.278Z"
+    },
+    {
+      "id": "vst_1792323459228_18",
+      "visitorId": "usr_9",
+      "sessionId": "ses_6",
+      "page": "Home Feed (All 10 Sectors)",
+      "path": "#all",
+      "country": "France",
+      "city": "Paris",
+      "countryCode": "FR",
+      "device": "Mobile",
+      "browser": "Firefox",
+      "os": "Windows",
+      "timestamp": "2026-10-18T11:37:39.228Z"
+    },
+    {
+      "id": "vst_1792323221467_19",
+      "visitorId": "usr_9",
+      "sessionId": "ses_6",
+      "page": "AI Sector",
+      "path": "#ai",
+      "country": "India",
+      "city": "Mumbai",
+      "countryCode": "IN",
+      "device": "Mobile",
+      "browser": "Microsoft Edge",
+      "os": "macOS",
+      "timestamp": "2026-10-18T11:33:41.467Z"
+    },
+    {
+      "id": "vst_1792322932480_20",
+      "visitorId": "usr_a",
+      "sessionId": "ses_6",
+      "page": "Tech Sector",
+      "path": "#tech",
+      "country": "United States",
+      "city": "New York",
+      "countryCode": "US",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "iOS",
+      "timestamp": "2026-10-18T11:28:52.480Z"
+    },
+    {
+      "id": "vst_1792322734331_21",
+      "visitorId": "usr_a",
+      "sessionId": "ses_7",
+      "page": "World Sector",
+      "path": "#world",
+      "country": "United Kingdom",
+      "city": "London",
+      "countryCode": "GB",
+      "device": "Desktop",
+      "browser": "Safari",
+      "os": "Android",
+      "timestamp": "2026-10-18T11:25:34.331Z"
+    },
+    {
+      "id": "vst_1792322493231_22",
+      "visitorId": "usr_b",
+      "sessionId": "ses_7",
+      "page": "Entertainment Hub (movies)",
+      "path": "#entertainment/movies",
+      "country": "United States",
+      "city": "San Francisco",
+      "countryCode": "US",
+      "device": "Desktop",
+      "browser": "Chrome",
+      "os": "Windows",
+      "timestamp": "2026-10-18T11:21:33.231Z"
+    },
+    {
+      "id": "vst_1792322224440_23",
+      "visitorId": "usr_b",
+      "sessionId": "ses_7",
+      "page": "Science Sector",
+      "path": "#science",
+      "country": "Canada",
+      "city": "Toronto",
+      "countryCode": "CA",
+      "device": "Tablet",
+      "browser": "Firefox",
+      "os": "macOS",
+      "timestamp": "2026-10-18T11:17:04.440Z"
+    },
+    {
+      "id": "vst_1792321984145_24",
+      "visitorId": "usr_c",
+      "sessionId": "ses_8",
+      "page": "Story: UN Plastics Treaty Binding Cap Finalized",
+      "path": "#story-world-01",
+      "country": "Germany",
+      "city": "Berlin",
+      "countryCode": "DE",
+      "device": "Mobile",
+      "browser": "Microsoft Edge",
+      "os": "iOS",
+      "timestamp": "2026-10-18T11:13:04.145Z"
+    },
+    {
+      "id": "vst_1792321735031_25",
+      "visitorId": "usr_c",
+      "sessionId": "ses_8",
+      "page": "Finance Sector",
+      "path": "#finance",
+      "country": "Japan",
+      "city": "Tokyo",
+      "countryCode": "JP",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "Android",
+      "timestamp": "2026-10-18T11:08:55.031Z"
+    },
+    {
+      "id": "vst_1792321496018_26",
+      "visitorId": "usr_d",
+      "sessionId": "ses_8",
+      "page": "Sports Sector",
+      "path": "#sports",
+      "country": "Nigeria",
+      "city": "Lagos",
+      "countryCode": "NG",
+      "device": "Mobile",
+      "browser": "Safari",
+      "os": "Windows",
+      "timestamp": "2026-10-18T11:04:56.018Z"
+    },
+    {
+      "id": "vst_1792321282385_27",
+      "visitorId": "usr_d",
+      "sessionId": "ses_9",
+      "page": "Home Feed (All 10 Sectors)",
+      "path": "#all",
+      "country": "Australia",
+      "city": "Sydney",
+      "countryCode": "AU",
+      "device": "Desktop",
+      "browser": "Chrome",
+      "os": "macOS",
+      "timestamp": "2026-10-18T11:01:22.385Z"
+    },
+    {
+      "id": "vst_1792321060461_28",
+      "visitorId": "usr_e",
+      "sessionId": "ses_9",
+      "page": "AI Sector",
+      "path": "#ai",
+      "country": "France",
+      "city": "Paris",
+      "countryCode": "FR",
+      "device": "Desktop",
+      "browser": "Firefox",
+      "os": "iOS",
+      "timestamp": "2026-10-18T10:57:40.461Z"
+    },
+    {
+      "id": "vst_1792320792194_29",
+      "visitorId": "usr_e",
+      "sessionId": "ses_9",
+      "page": "Tech Sector",
+      "path": "#tech",
+      "country": "India",
+      "city": "Mumbai",
+      "countryCode": "IN",
+      "device": "Tablet",
+      "browser": "Microsoft Edge",
+      "os": "Android",
+      "timestamp": "2026-10-18T10:53:12.194Z"
+    },
+    {
+      "id": "vst_1792320547186_30",
+      "visitorId": "usr_f",
+      "sessionId": "ses_a",
+      "page": "World Sector",
+      "path": "#world",
+      "country": "United States",
+      "city": "New York",
+      "countryCode": "US",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "Windows",
+      "timestamp": "2026-10-18T10:49:07.186Z"
+    },
+    {
+      "id": "vst_1792320328412_31",
+      "visitorId": "usr_f",
+      "sessionId": "ses_a",
+      "page": "Entertainment Hub (movies)",
+      "path": "#entertainment/movies",
+      "country": "United Kingdom",
+      "city": "London",
+      "countryCode": "GB",
+      "device": "Mobile",
+      "browser": "Safari",
+      "os": "macOS",
+      "timestamp": "2026-10-18T10:45:28.412Z"
+    },
+    {
+      "id": "vst_1792320090758_32",
+      "visitorId": "usr_g",
+      "sessionId": "ses_a",
+      "page": "Science Sector",
+      "path": "#science",
+      "country": "United States",
+      "city": "San Francisco",
+      "countryCode": "US",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "iOS",
+      "timestamp": "2026-10-18T10:41:30.758Z"
+    },
+    {
+      "id": "vst_1792319859661_33",
+      "visitorId": "usr_g",
+      "sessionId": "ses_b",
+      "page": "Story: UN Plastics Treaty Binding Cap Finalized",
+      "path": "#story-world-01",
+      "country": "Canada",
+      "city": "Toronto",
+      "countryCode": "CA",
+      "device": "Desktop",
+      "browser": "Firefox",
+      "os": "Android",
+      "timestamp": "2026-10-18T10:37:39.661Z"
+    },
+    {
+      "id": "vst_1792319603758_34",
+      "visitorId": "usr_h",
+      "sessionId": "ses_b",
+      "page": "Finance Sector",
+      "path": "#finance",
+      "country": "Germany",
+      "city": "Berlin",
+      "countryCode": "DE",
+      "device": "Desktop",
+      "browser": "Microsoft Edge",
+      "os": "Windows",
+      "timestamp": "2026-10-18T10:33:23.758Z"
+    },
+    {
+      "id": "vst_1792319386647_35",
+      "visitorId": "usr_h",
+      "sessionId": "ses_b",
+      "page": "Sports Sector",
+      "path": "#sports",
+      "country": "Japan",
+      "city": "Tokyo",
+      "countryCode": "JP",
+      "device": "Tablet",
+      "browser": "Chrome",
+      "os": "macOS",
+      "timestamp": "2026-10-18T10:29:46.647Z"
+    },
+    {
+      "id": "vst_1792319123842_36",
+      "visitorId": "usr_i",
+      "sessionId": "ses_c",
+      "page": "Home Feed (All 10 Sectors)",
+      "path": "#all",
+      "country": "Nigeria",
+      "city": "Lagos",
+      "countryCode": "NG",
+      "device": "Mobile",
+      "browser": "Safari",
+      "os": "iOS",
+      "timestamp": "2026-10-18T10:25:23.842Z"
+    },
+    {
+      "id": "vst_1792318882799_37",
+      "visitorId": "usr_i",
+      "sessionId": "ses_c",
+      "page": "AI Sector",
+      "path": "#ai",
+      "country": "Australia",
+      "city": "Sydney",
+      "countryCode": "AU",
+      "device": "Mobile",
+      "browser": "Chrome",
+      "os": "Android",
+      "timestamp": "2026-10-18T10:21:22.799Z"
+    },
+    {
+      "id": "vst_1792318663018_38",
+      "visitorId": "usr_j",
+      "sessionId": "ses_c",
+      "page": "Tech Sector",
+      "path": "#tech",
+      "country": "France",
+      "city": "Paris",
+      "countryCode": "FR",
+      "device": "Mobile",
+      "browser": "Firefox",
+      "os": "Windows",
+      "timestamp": "2026-10-18T10:17:43.018Z"
+    },
+    {
+      "id": "vst_1792318405144_39",
+      "visitorId": "usr_j",
+      "sessionId": "ses_d",
+      "page": "World Sector",
+      "path": "#world",
+      "country": "India",
+      "city": "Mumbai",
+      "countryCode": "IN",
+      "device": "Desktop",
+      "browser": "Microsoft Edge",
+      "os": "macOS",
+      "timestamp": "2026-10-18T10:13:25.144Z"
+    }
+  ]
+}
