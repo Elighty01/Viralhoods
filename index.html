@@ -12,8 +12,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..700&display=swap" rel="stylesheet" />
-    <!-- Production CSS: loads instantly for static GitHub Pages hosting -->
-    <link rel="stylesheet" crossorigin href="./assets/index.css" />
     <style>
       body {
         margin: 0;
@@ -78,32 +76,7 @@
       </div>
     </div>
 
-    <!-- Script loader: supports BOTH Vite Dev Server AND direct static GitHub Pages -->
-    <script type="module">
-      const isDevServer = window.location.port === '3000' || 
-                          window.location.hostname === 'localhost' || 
-                          window.location.hostname === '127.0.0.1' || 
-                          window.location.hostname.indexOf('run.app') !== -1;
-
-      if (!isDevServer) {
-        // Direct static GitHub Pages (https://elighty01.github.io/Viralhoods/):
-        // Automatically inject compiled production script
-        var prodScript = document.createElement('script');
-        prodScript.type = 'module';
-        prodScript.crossOrigin = 'anonymous';
-        prodScript.src = './assets/index.js';
-        prodScript.onerror = function() {
-          var fallbackScript = document.createElement('script');
-          fallbackScript.type = 'module';
-          fallbackScript.crossOrigin = 'anonymous';
-          fallbackScript.src = './dist/assets/index.js';
-          document.head.appendChild(fallbackScript);
-        };
-        document.head.appendChild(prodScript);
-      }
-    </script>
-
-    <!-- Vite dev server entry point -->
-    <script type="module" src="./src/main.tsx"></script>
+    <!-- Vite entry point -->
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

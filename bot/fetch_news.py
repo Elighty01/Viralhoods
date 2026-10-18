@@ -1,1 +1,0 @@
-<full content for bot/fetch_news.py>
