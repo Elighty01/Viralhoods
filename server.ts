@@ -239,199 +239,351 @@ app.post('/api/gemini/chat', async (req: Request, res: Response) => {
   }
 });
 
-// 2. Google Search & News Live Integration
-const handleGoogleSearch = async (req: Request, res: Response) => {
+// 2. Local News Content & Google Custom Search API Unified Search Service
+function searchLocalNewsContent(query: string, limit: number = 20) {
+  try {
+    const raw = fs.readFileSync('data/news.json', 'utf-8');
+    const parsed = JSON.parse(raw);
+    const items: any[] = parsed.items || [];
+    const qLower = query.toLowerCase().trim();
+    const qWords = qLower.split(/\s+/).filter((w) => w.length > 1);
+
+    const scored = items.map((item) => {
+      let score = 0;
+      const titleLower = (item.title || '').toLowerCase();
+      const summaryLower = (item.summary || '').toLowerCase();
+      const contentLower = (Array.isArray(item.content) ? item.content.join(' ') : (item.content || '')).toLowerCase();
+      const catLower = (item.category || '').toLowerCase();
+      const authorLower = (item.author || '').toLowerCase();
+      const takeawaysLower = (Array.isArray(item.keyTakeaways) ? item.keyTakeaways.join(' ') : '').toLowerCase();
+
+      // Exact phrase match weights
+      if (titleLower.includes(qLower)) score += 60;
+      if (summaryLower.includes(qLower)) score += 30;
+      if (catLower === qLower) score += 35;
+      if (catLower.includes(qLower)) score += 18;
+      if (takeawaysLower.includes(qLower)) score += 20;
+      if (contentLower.includes(qLower)) score += 15;
+      if (authorLower.includes(qLower)) score += 12;
+
+      // Token word matches
+      for (const word of qWords) {
+        if (titleLower.includes(word)) score += 12;
+        if (summaryLower.includes(word)) score += 6;
+        if (catLower.includes(word)) score += 8;
+        if (contentLower.includes(word)) score += 3;
+      }
+
+      return { item, score };
+    });
+
+    return scored
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((s) => ({
+        id: s.item.id,
+        title: s.item.title,
+        summary: s.item.summary,
+        category: s.item.category,
+        source: s.item.source || 'Viralhoods Local News',
+        date: s.item.date,
+        url: `#story-${s.item.id}`,
+        image: s.item.image,
+        author: s.item.author,
+        readTime: s.item.readTime,
+        score: s.score,
+      }));
+  } catch (e) {
+    console.warn('Local news search indexing note:', e);
+    return [];
+  }
+}
+
+// Google Custom Search API fetcher with automatic Google News RSS & index fallbacks
+async function searchGoogleCustomSearch(query: string) {
+  const customSearchApiKey =
+    process.env.GOOGLE_CUSTOM_SEARCH_API_KEY ||
+    process.env.GOOGLE_SEARCH_API_KEY ||
+    process.env.GOOGLE_CSE_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.CUSTOM_SEARCH_API_KEY ||
+    '';
+  const customSearchCx =
+    process.env.GOOGLE_CUSTOM_SEARCH_CX ||
+    process.env.GOOGLE_CSE_ID ||
+    process.env.GOOGLE_SEARCH_CX ||
+    process.env.CUSTOM_SEARCH_CX ||
+    '';
+
+  let usingCustomSearchApi = false;
+  let customSearchResults: any[] = [];
+
+  // Attempt Google Custom Search JSON API if configured
+  if (customSearchApiKey && customSearchCx) {
+    try {
+      const cseUrl = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(
+        customSearchApiKey.trim()
+      )}&cx=${encodeURIComponent(customSearchCx.trim())}&q=${encodeURIComponent(query)}&num=10`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(cseUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.items) && data.items.length > 0) {
+          usingCustomSearchApi = true;
+          customSearchResults = data.items.map((item: any) => {
+            const thumbnail =
+              item.pagemap?.cse_thumbnail?.[0]?.src ||
+              item.pagemap?.cse_image?.[0]?.src ||
+              undefined;
+            const published =
+              item.pagemap?.metatags?.[0]?.['article:published_time'] ||
+              item.pagemap?.metatags?.[0]?.['og:updated_time'] ||
+              new Date().toISOString();
+
+            return {
+              title: item.title || '',
+              url: item.link || '',
+              snippet: item.snippet || item.htmlSnippet?.replace(/<[^>]+>/g, '') || '',
+              source: item.displayLink || 'Google Custom Search',
+              date: published,
+              thumbnail,
+              isGoogleNews: false,
+              isCustomSearch: true,
+              displayLink: item.displayLink,
+            };
+          });
+        }
+      }
+    } catch (cseErr: any) {
+      console.warn('Google Custom Search API note (falling back to Google News RSS index):', cseErr?.message || cseErr);
+    }
+  }
+
+  // Google News RSS real-time feed
+  const fetchNewsRss = async () => {
+    try {
+      const feedUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+      const feed = await rssParser.parseURL(feedUrl);
+      return (feed.items || []).slice(0, 15).map((item) => {
+        let src = 'Google News';
+        let title = item.title || '';
+        const dashIdx = title.lastIndexOf(' - ');
+        if (dashIdx > 0) {
+          src = title.substring(dashIdx + 3).trim();
+          title = title.substring(0, dashIdx).trim();
+        }
+        return {
+          title,
+          url: item.link || '',
+          snippet: item.contentSnippet || item.content || `Latest reporting on ${query} via ${src}.`,
+          source: src,
+          date: item.pubDate || new Date().toISOString(),
+          isGoogleNews: true,
+          isCustomSearch: false,
+        };
+      });
+    } catch (e: any) {
+      return [];
+    }
+  };
+
+  // Gemini Google Search Grounding with safe key verification & silent error handling
+  const fetchGeminiGrounding = async () => {
+    try {
+      const apiKey = getValidGeminiApiKey();
+      if (
+        !apiKey ||
+        apiKey.length < 15 ||
+        apiKey.includes('MY_GEMINI') ||
+        apiKey.includes('YOUR_') ||
+        apiKey.includes('placeholder')
+      ) {
+        return null;
+      }
+      const ai = getAiClient();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: `Search Google in real time for comprehensive, verified facts on: "${query}". Provide a 2-paragraph executive news briefing summarizing key events, sources, and notable context.`,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const text = response.text || '';
+      const meta = response.candidates?.[0]?.groundingMetadata;
+      const chunks = (meta?.groundingChunks || []) as any[];
+      const sources: { title: string; url: string }[] = [];
+
+      for (const c of chunks) {
+        if (c.web?.uri) {
+          sources.push({
+            title: c.web.title || c.web.uri.replace(/^https?:\/\//, '').split('/')[0],
+            url: c.web.uri,
+          });
+        }
+      }
+
+      const queries = (meta?.webSearchQueries || []) as string[];
+      return { text, sources, queries };
+    } catch {
+      // Gracefully handle any invalid API keys or transient timeouts without polluting logs
+      return null;
+    }
+  };
+
+  const [rssRes, aiRes] = await Promise.all([
+    fetchNewsRss(),
+    Promise.race([
+      fetchGeminiGrounding(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]),
+  ]);
+
+  let aiOverview = '';
+  let groundingSources: { title: string; url: string }[] = [];
+  let webQueries: string[] = [query];
+
+  if (aiRes) {
+    aiOverview = aiRes.text;
+    groundingSources = aiRes.sources || [];
+    if (aiRes.queries?.length) {
+      webQueries = aiRes.queries;
+    }
+  }
+
+  // Combine Google Custom Search + Google News RSS results
+  const mergedGoogle: any[] = [...customSearchResults];
+
+  // Append RSS results if not already present
+  for (const rssItem of rssRes || []) {
+    if (!mergedGoogle.some((r) => r.url === rssItem.url)) {
+      mergedGoogle.push(rssItem);
+    }
+  }
+
+  // Append grounding sources
+  for (const src of groundingSources) {
+    if (!mergedGoogle.some((r) => r.url === src.url)) {
+      mergedGoogle.push({
+        title: src.title,
+        url: src.url,
+        snippet: `Verified Google Search index citation referenced for "${query}".`,
+        source: src.url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0],
+        date: new Date().toISOString(),
+        isGoogleNews: false,
+        isCustomSearch: false,
+      });
+    }
+  }
+
+  const directGoogleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  const directGoogleNewsUrl = `https://news.google.com/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+  const directGoogleImagesUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch`;
+  const directGoogleVideosUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=vid`;
+
+  if (!aiOverview) {
+    if (mergedGoogle.length > 0) {
+      const topHeadlines = mergedGoogle
+        .slice(0, 3)
+        .map((r) => `"${r.title}" (${r.source})`)
+        .join('; ');
+      aiOverview = `Live Google Search reports on "${query}" show high-velocity coverage. Top monitored dispatches include: ${topHeadlines}.`;
+    } else {
+      aiOverview = `Current real-time Google search index records for "${query}". View official search indices and live publisher coverage below.`;
+    }
+  }
+
+  // If mergedGoogle is still empty, include official live Google destination index links
+  if (mergedGoogle.length === 0) {
+    mergedGoogle.push({
+      title: `Google Live Web Search Index for "${query}"`,
+      url: directGoogleUrl,
+      snippet: `Real-time Google search index results, live ranking signals, and verified web citations for "${query}".`,
+      source: 'google.com',
+      date: new Date().toISOString(),
+      isGoogleNews: false,
+      isCustomSearch: false,
+    });
+    mergedGoogle.push({
+      title: `Google News Breaking Global Coverage on "${query}"`,
+      url: directGoogleNewsUrl,
+      snippet: `Aggregated international news coverage from Reuters, Associated Press, Bloomberg, BBC, and global publishers on Google News.`,
+      source: 'news.google.com',
+      date: new Date().toISOString(),
+      isGoogleNews: true,
+      isCustomSearch: false,
+    });
+  }
+
+  return {
+    results: mergedGoogle,
+    usingCustomSearchApi,
+    aiOverview,
+    groundingSources,
+    webQueries,
+    directGoogleUrl,
+    directGoogleNewsUrl,
+    directGoogleImagesUrl,
+    directGoogleVideosUrl,
+  };
+}
+
+// Unified Search Handler combining Current Local News Content & Google Custom Search API
+const handleUnifiedSearch = async (req: Request, res: Response) => {
   try {
     const query = ((req.method === 'GET' ? req.query.q : req.body.query) || '').toString().trim();
-    const type = ((req.method === 'GET' ? req.query.type : req.body.type) || 'web').toString().toLowerCase();
+    const type = ((req.method === 'GET' ? req.query.type : req.body.type) || 'unified').toString().toLowerCase();
 
     if (!query) {
       return res.status(400).json({ error: 'Search query is required.' });
     }
 
-    const directGoogleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-    const directGoogleNewsUrl = `https://news.google.com/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-    const directGoogleImagesUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=isch`;
-    const directGoogleVideosUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=vid`;
-
-    let aiOverview = '';
-    let groundingSources: { title: string; url: string }[] = [];
-    let webQueries: string[] = [query];
-    let googleNewsResults: any[] = [];
-
-    // Parallel fetch: 1) Google News RSS real-time feed; 2) Gemini Google Search Grounding with timeout
-    const fetchNewsRss = async () => {
-      try {
-        const feedUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
-        const feed = await rssParser.parseURL(feedUrl);
-        return (feed.items || []).slice(0, 15).map((item) => {
-          let src = 'Google News';
-          let title = item.title || '';
-          const dashIdx = title.lastIndexOf(' - ');
-          if (dashIdx > 0) {
-            src = title.substring(dashIdx + 3).trim();
-            title = title.substring(0, dashIdx).trim();
-          }
-          return {
-            title,
-            url: item.link || '',
-            snippet: item.contentSnippet || item.content || `Latest reporting on ${query} via ${src}.`,
-            source: src,
-            date: item.pubDate || new Date().toISOString(),
-            isGoogleNews: true,
-          };
-        });
-      } catch (e: any) {
-        console.warn('Google News RSS search fetch notice:', e?.message || e);
-        return [];
-      }
-    };
-
-    const fetchGeminiGrounding = async () => {
-      try {
-        const ai = getAiClient();
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: `Search Google in real time for comprehensive, verified facts on: "${query}". Provide a 2-paragraph executive news briefing summarizing key events, sources, and notable context.`,
-          config: {
-            tools: [{ googleSearch: {} }],
-          },
-        });
-
-        const text = response.text || '';
-        const meta = response.candidates?.[0]?.groundingMetadata;
-        const chunks = (meta?.groundingChunks || []) as any[];
-        const sources: { title: string; url: string }[] = [];
-
-        for (const c of chunks) {
-          if (c.web?.uri) {
-            sources.push({
-              title: c.web.title || c.web.uri.replace(/^https?:\/\//, '').split('/')[0],
-              url: c.web.uri,
-            });
-          }
-        }
-
-        const queries = (meta?.webSearchQueries || []) as string[];
-        return { text, sources, queries };
-      } catch (e: any) {
-        console.warn('Gemini Google Search Grounding notice:', e?.message || e);
-        return null;
-      }
-    };
-
-    // Run RSS with Gemini concurrently, with a 3.5s timeout on Gemini
-    const [rssRes, aiRes] = await Promise.all([
-      fetchNewsRss(),
-      Promise.race([
-        fetchGeminiGrounding(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
-      ]),
+    // Parallel fetch: 1) Current Local News Content; 2) Google Custom Search API / Web index
+    const [localResults, googleData] = await Promise.all([
+      Promise.resolve(searchLocalNewsContent(query, 15)),
+      searchGoogleCustomSearch(query),
     ]);
 
-    googleNewsResults = rssRes || [];
-
-    if (aiRes) {
-      aiOverview = aiRes.text;
-      groundingSources = aiRes.sources || [];
-      if (aiRes.queries?.length) {
-        webQueries = aiRes.queries;
-      }
-    } else if (googleNewsResults.length > 0) {
-      const topHeadlines = googleNewsResults.slice(0, 3).map((r) => `"${r.title}" (${r.source})`).join('; ');
-      aiOverview = `Live Google Search reports on "${query}" show high-velocity coverage. Top monitored dispatches include: ${topHeadlines}.`;
-    } else {
-      aiOverview = `Current real-time Google search index records for "${query}". View official search indices and live publisher coverage below.`;
-    }
-
-    // Merge results
-    const combinedResults = [...googleNewsResults];
-    for (const src of groundingSources) {
-      if (!combinedResults.some((r) => r.url === src.url)) {
-        combinedResults.push({
-          title: src.title,
-          url: src.url,
-          snippet: `Live Google Search index result referenced by Google Search Grounding for "${query}".`,
-          source: src.url.replace(/^https?:\/\/(www\.)?/, '').split('/')[0],
-          date: new Date().toISOString(),
-          isGoogleNews: false,
-        });
-      }
-    }
-
-    // If combinedResults is empty, add matching internal curated reports and official Google search engine targets
-    if (combinedResults.length === 0) {
-      try {
-        const localData = JSON.parse(fs.readFileSync('data/news.json', 'utf-8'));
-        const qNorm = query.toLowerCase();
-        const matches = (localData.items || []).filter((item: any) =>
-          (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(qNorm)
-        ).slice(0, 5);
-
-        for (const m of matches) {
-          combinedResults.push({
-            title: `${m.title} [Viralhoods ${m.category}]`,
-            url: `#story-${m.id}`,
-            snippet: m.summary || `Verified reporting on ${query} published in the ${m.category} Sector.`,
-            source: m.source || 'Viralhoods Wire',
-            date: m.date || new Date().toISOString(),
-            isGoogleNews: false,
-          });
-        }
-      } catch {}
-
-      // Add direct authoritative Google Search and News destinations
-      combinedResults.push({
-        title: `Google Live Web Search Index for "${query}"`,
-        url: directGoogleUrl,
-        snippet: `Real-time Google search index results, live ranking signals, and verified web citations for "${query}".`,
-        source: 'google.com',
-        date: new Date().toISOString(),
-        isGoogleNews: false,
-      });
-
-      combinedResults.push({
-        title: `Google News Breaking Global Coverage on "${query}"`,
-        url: directGoogleNewsUrl,
-        snippet: `Aggregated international news coverage from Reuters, Associated Press, Bloomberg, BBC, and global publishers on Google News.`,
-        source: 'news.google.com',
-        date: new Date().toISOString(),
-        isGoogleNews: true,
-      });
-
-      combinedResults.push({
-        title: `Google Video & Multimedia Wire on "${query}"`,
-        url: directGoogleVideosUrl,
-        snippet: `High-definition broadcast video reports, live press briefings, and interviews matching "${query}".`,
-        source: 'google.com/videos',
-        date: new Date().toISOString(),
-        isGoogleNews: false,
-      });
-    }
+    const sourceBreakdown = {
+      total: localResults.length + googleData.results.length,
+      localNewsCount: localResults.length,
+      googleCount: googleData.results.length,
+      usingCustomSearchApi: googleData.usingCustomSearchApi,
+    };
 
     res.json({
       query,
       type,
-      aiOverview,
-      results: combinedResults,
-      groundingSources,
-      webQueries,
-      directGoogleUrl,
-      directGoogleNewsUrl,
-      directGoogleImagesUrl,
-      directGoogleVideosUrl,
+      sourceBreakdown,
+      localResults,
+      googleResults: googleData.results,
+      results: googleData.results, // For backward-compatibility with existing UI
+      aiOverview: googleData.aiOverview,
+      groundingSources: googleData.groundingSources,
+      webQueries: googleData.webQueries,
+      directGoogleUrl: googleData.directGoogleUrl,
+      directGoogleNewsUrl: googleData.directGoogleNewsUrl,
+      directGoogleImagesUrl: googleData.directGoogleImagesUrl,
+      directGoogleVideosUrl: googleData.directGoogleVideosUrl,
     });
   } catch (error: any) {
-    console.error('Google search endpoint error:', error);
-    res.status(500).json({ error: error?.message || 'Google search failed' });
+    console.error('Unified search service error:', error);
+    res.status(500).json({ error: error?.message || 'Unified search failed' });
   }
 };
 
-app.get('/api/search/google', handleGoogleSearch);
-app.post('/api/search/google', handleGoogleSearch);
-
-// Google Search Grounding alias for backwards compatibility
-app.post('/api/gemini/search-grounding', handleGoogleSearch);
+app.get('/api/search/unified', handleUnifiedSearch);
+app.post('/api/search/unified', handleUnifiedSearch);
+app.get('/api/search/google', handleUnifiedSearch);
+app.post('/api/search/google', handleUnifiedSearch);
+app.get('/api/search', handleUnifiedSearch);
+app.post('/api/search', handleUnifiedSearch);
+app.post('/api/gemini/search-grounding', handleUnifiedSearch);
 
 // 2b. Geolocation & Visitor Tracking Telemetry Endpoints
 app.get('/api/analytics/geo', async (req: Request, res: Response) => {

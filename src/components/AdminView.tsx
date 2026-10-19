@@ -249,11 +249,15 @@ export const AdminView: React.FC<AdminViewProps> = ({
       verifyAdminPassword(cleanPass)
     ) {
       setPasswordError('');
-      const targetUser = cleanUser || VIRALHOODS_ADMIN_USERNAME;
+      const targetUser = cleanUser || CHIEF_ADMIN_EMAIL;
       const isTargetChief = isChiefAdminEmail(targetUser);
+      if (!isTargetChief) {
+        setPasswordError('Access restricted: Only the Chief Administrator has administrative authority.');
+        return;
+      }
       const user = setCurrentUser(
         targetUser,
-        isTargetChief ? 'Chief Administrator' : 'Staff Administrator',
+        'Chief Administrator',
         true
       );
       if (onAuthorizeAdmin) {
@@ -671,7 +675,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: 700, color: 'var(--fg-muted)' }}>Quick Login Presets:</span>
+                <span style={{ fontWeight: 700, color: 'var(--fg-muted)' }}>Authorized Administrator:</span>
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button
@@ -683,7 +687,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   style={{
                     flex: 1,
                     minWidth: '130px',
-                    padding: '6px 8px',
+                    padding: '8px 12px',
                     background: adminUsernameInput === CHIEF_ADMIN_EMAIL ? 'rgba(245, 158, 11, 0.15)' : 'var(--bg-card)',
                     border: '1px solid',
                     borderColor: adminUsernameInput === CHIEF_ADMIN_EMAIL ? 'var(--sun)' : 'var(--line)',
@@ -691,32 +695,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     color: adminUsernameInput === CHIEF_ADMIN_EMAIL ? 'var(--sun-hover)' : 'var(--fg)',
                     fontWeight: 700,
                     cursor: 'pointer',
-                    fontSize: '0.78rem',
+                    fontSize: '0.84rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
                   }}
                 >
-                  👑 Chief Administrator
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAdminUsernameInput('Viralhoods');
-                    setAdminPasswordInput('2026@Wemakingit');
-                  }}
-                  style={{
-                    flex: 1,
-                    minWidth: '130px',
-                    padding: '6px 8px',
-                    background: adminUsernameInput === 'Viralhoods' ? 'var(--blue-tint)' : 'var(--bg-card)',
-                    border: '1px solid',
-                    borderColor: adminUsernameInput === 'Viralhoods' ? 'var(--blue)' : 'var(--line)',
-                    borderRadius: 'var(--radius-sm)',
-                    color: adminUsernameInput === 'Viralhoods' ? 'var(--blue)' : 'var(--fg)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    fontSize: '0.78rem',
-                  }}
-                >
-                  🛡️ Staff Admin (Other)
+                  👑 Chief Administrator ({CHIEF_ADMIN_EMAIL})
                 </button>
               </div>
             </div>

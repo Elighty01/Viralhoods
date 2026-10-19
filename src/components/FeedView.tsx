@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { NewsItem, User } from '../types';
+import { NewsItem, User, UnifiedSearchResponse } from '../types';
 import { NewsCard, formatAgo } from './NewsCard';
 import { NewsletterBanner } from './NewsletterBanner';
 import { EntertainmentHub, EntertainmentSubpage } from './EntertainmentHub';
+import { executeUnifiedSearch } from '../services/searchService';
 import {
   Search,
   Bookmark,
@@ -14,6 +15,7 @@ import {
   ArrowRight,
   Loader2,
   Share2,
+  Layers,
 } from 'lucide-react';
 
 interface FeedViewProps {
@@ -36,28 +38,6 @@ interface FeedViewProps {
 
 export type SearchEngineMode = 'viralhoods' | 'google' | 'google-news';
 
-interface GoogleSearchResultItem {
-  title: string;
-  url: string;
-  snippet: string;
-  source: string;
-  date?: string;
-  isGoogleNews?: boolean;
-}
-
-interface GoogleSearchResponse {
-  query: string;
-  type: string;
-  aiOverview?: string;
-  results: GoogleSearchResultItem[];
-  groundingSources?: { title: string; url: string }[];
-  webQueries?: string[];
-  directGoogleUrl: string;
-  directGoogleNewsUrl: string;
-  directGoogleImagesUrl?: string;
-  directGoogleVideosUrl?: string;
-}
-
 export const FeedView: React.FC<FeedViewProps> = ({
   items,
   updatedTime,
@@ -76,95 +56,74 @@ export const FeedView: React.FC<FeedViewProps> = ({
   onSelectEntertainmentSubpage,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchEngine, setSearchEngine] = useState<SearchEngineMode>('viralhoods');
+  const [searchTab, setSearchTab] = useState<'all' | 'local' | 'google'>('all');
   
-  // Google Search states
-  const [googleData, setGoogleData] = useState<GoogleSearchResponse | null>(null);
-  const [isSearchingGoogle, setIsSearchingGoogle] = useState(false);
-  const [googleSearchError, setGoogleSearchError] = useState<string | null>(null);
+  // Unified Search states
+  const [unifiedData, setUnifiedData] = useState<UnifiedSearchResponse | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
-  // Internal filter
+  // Internal filter - searches titles, summaries, and categories
   const filteredItems = items.filter((item) => {
     if (showOnlyBookmarks && !bookmarks.includes(item.id)) {
       return false;
     }
     const matchesCategory =
-      showOnlyBookmarks || category === 'All' || item.category === category;
+      showOnlyBookmarks || !normalizedQuery || category === 'All' || item.category === category;
     const matchesQuery =
       !normalizedQuery ||
-      (item.title + ' ' + (item.summary || '')).toLowerCase().includes(normalizedQuery);
+      (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });
 
   const updatedText = updatedTime ? `Updated ${formatAgo(updatedTime)}` : 'Live Feed Active';
 
-  // Perform Google Search Query
-  const executeGoogleSearch = async (queryText?: string, mode: SearchEngineMode = searchEngine) => {
+  // Perform Unified Search across Current Local News Content & Google Custom Search API
+  const runUnifiedSearch = async (queryText?: string) => {
     const q = (queryText !== undefined ? queryText : searchQuery).trim();
     if (!q) return;
 
-    setIsSearchingGoogle(true);
-    setGoogleSearchError(null);
-
-    const type = mode === 'google-news' ? 'news' : 'web';
+    setIsSearching(true);
+    setSearchError(null);
 
     try {
-      const res = await fetch(`/api/search/google?q=${encodeURIComponent(q)}&type=${type}`);
-      if (!res.ok) {
-        throw new Error(`Google Search request failed: ${res.statusText}`);
-      }
-      const data: GoogleSearchResponse = await res.json();
-      setGoogleData(data);
-    } catch (err: any) {
-      console.warn('Google Search integration notice:', err);
-      // Fallback response with direct Google search links
-      setGoogleData({
-        query: q,
-        type,
-        aiOverview: `Live Google Search and News coverage on "${q}". Query Google web indices or explore live publisher coverage directly.`,
-        directGoogleUrl: `https://www.google.com/search?q=${encodeURIComponent(q)}`,
-        directGoogleNewsUrl: `https://news.google.com/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`,
-        results: [
-          {
-            title: `Google Live Web Search Index for "${q}"`,
-            url: `https://www.google.com/search?q=${encodeURIComponent(q)}`,
-            snippet: `Explore live Google web search results, authoritative ranking signals, and verified web citations for "${q}".`,
-            source: 'google.com',
-            date: new Date().toISOString(),
-          },
-          {
-            title: `Google News Breaking Global Coverage on "${q}"`,
-            url: `https://news.google.com/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`,
-            snippet: `Aggregated international news coverage from Reuters, Associated Press, Bloomberg, BBC, and global publishers.`,
-            source: 'news.google.com',
-            date: new Date().toISOString(),
-            isGoogleNews: true,
-          },
-        ],
+      const data = await executeUnifiedSearch(q, {
+        category,
+        inMemoryStories: items,
       });
+      setUnifiedData(data);
+    } catch (err: any) {
+      console.warn('Unified search client error:', err);
+      setSearchError(err?.message || 'Search failed');
     } finally {
-      setIsSearchingGoogle(false);
+      setIsSearching(false);
     }
   };
 
-  // Switch search engine mode
-  const handleSelectEngine = (mode: SearchEngineMode) => {
-    setSearchEngine(mode);
-    if ((mode === 'google' || mode === 'google-news') && searchQuery.trim()) {
-      executeGoogleSearch(searchQuery.trim(), mode);
+  // Automatically trigger debounced unified search whenever search query changes
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q || q.length < 2) {
+      setUnifiedData(null);
+      setIsSearching(false);
+      return;
     }
-  };
 
-  // Handle Search Input Submit
+    const timer = setTimeout(() => {
+      runUnifiedSearch(q);
+    }, 450);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Handle Search Input Enter Key
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      if (searchEngine === 'google' || searchEngine === 'google-news') {
-        executeGoogleSearch();
-      } else if (searchQuery.trim() && filteredItems.length === 0) {
-        // Auto prompt to Google if 0 local results
-        handleSelectEngine('google');
+      e.preventDefault();
+      if (searchQuery.trim()) {
+        runUnifiedSearch(searchQuery.trim());
       }
     }
   };
@@ -209,29 +168,26 @@ export const FeedView: React.FC<FeedViewProps> = ({
           )}
         </div>
 
-        {/* Integrated Multi-Engine Search Controls */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', minWidth: '320px', flex: '1 1 360px', maxWidth: '640px' }}>
-          <div className="search-box-wrapper" style={{ width: '100%' }}>
-            {searchEngine === 'viralhoods' ? (
-              <Search size={16} className="search-icon" />
-            ) : searchEngine === 'google' ? (
-              <Globe size={16} className="search-icon" style={{ color: 'var(--blue)' }} />
-            ) : (
-              <Newspaper size={16} className="search-icon" style={{ color: '#ea4335' }} />
-            )}
+        {/* Unified Search Control - Searches Website Contents & Entire Google */}
+        <div style={{ display: 'flex', alignItems: 'center', minWidth: '300px', flex: '1 1 360px', maxWidth: '580px' }}>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (searchQuery.trim()) {
+                runUnifiedSearch(searchQuery.trim());
+              }
+            }}
+            className="search-box-wrapper"
+            style={{ width: '100%' }}
+          >
+            <Search size={16} className="search-icon" />
 
             <input
               id="q"
               type="search"
               className="search-input"
-              placeholder={
-                searchEngine === 'viralhoods'
-                  ? 'Search 10 news sectors & stories...'
-                  : searchEngine === 'google'
-                  ? 'Search Google Live Web Index...'
-                  : 'Search Google News breaking wire...'
-              }
-              aria-label="Search news"
+              placeholder="Search website contents & entire Google..."
+              aria-label="Search website contents and Google"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -242,7 +198,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                 type="button"
                 onClick={() => {
                   setSearchQuery('');
-                  setGoogleData(null);
+                  setUnifiedData(null);
                 }}
                 style={{
                   background: 'transparent',
@@ -259,210 +215,279 @@ export const FeedView: React.FC<FeedViewProps> = ({
               </button>
             )}
 
-            {(searchEngine === 'google' || searchEngine === 'google-news') && (
-              <button
-                type="button"
-                onClick={() => executeGoogleSearch()}
-                disabled={isSearchingGoogle || !searchQuery.trim()}
-                style={{
-                  background: 'var(--blue)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  padding: '5px 12px',
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  cursor: searchQuery.trim() ? 'pointer' : 'default',
-                  opacity: searchQuery.trim() ? 1 : 0.6,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                {isSearchingGoogle ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
-                Search
-              </button>
-            )}
-          </div>
-
-          {/* Engine Selector Pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--fg-muted)', textTransform: 'uppercase' }}>
-              Engine:
-            </span>
-
             <button
-              type="button"
-              onClick={() => handleSelectEngine('viralhoods')}
+              type="submit"
+              disabled={isSearching || !searchQuery.trim()}
               style={{
-                background: searchEngine === 'viralhoods' ? 'var(--blue)' : 'var(--bg-subtle)',
-                color: searchEngine === 'viralhoods' ? '#ffffff' : 'var(--fg)',
-                border: '1px solid ' + (searchEngine === 'viralhoods' ? 'var(--blue)' : 'var(--line)'),
-                borderRadius: '16px',
-                padding: '3px 10px',
-                fontSize: '0.76rem',
+                background: 'var(--blue)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '0.8rem',
                 fontWeight: 700,
-                cursor: 'pointer',
+                cursor: searchQuery.trim() ? 'pointer' : 'default',
+                opacity: searchQuery.trim() ? 1 : 0.6,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
-                transition: 'all 0.15s ease',
+                gap: '5px',
+                flexShrink: 0,
               }}
             >
-              <Search size={11} /> Viralhoods Stories
+              {isSearching ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+              Search
             </button>
-
-            <button
-              type="button"
-              onClick={() => handleSelectEngine('google')}
-              style={{
-                background: searchEngine === 'google' ? 'var(--blue)' : 'var(--bg-subtle)',
-                color: searchEngine === 'google' ? '#ffffff' : 'var(--fg)',
-                border: '1px solid ' + (searchEngine === 'google' ? 'var(--blue)' : 'var(--line)'),
-                borderRadius: '16px',
-                padding: '3px 10px',
-                fontSize: '0.76rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <Globe size={11} /> Google Search
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSelectEngine('google-news')}
-              style={{
-                background: searchEngine === 'google-news' ? '#ea4335' : 'var(--bg-subtle)',
-                color: searchEngine === 'google-news' ? '#ffffff' : 'var(--fg)',
-                border: '1px solid ' + (searchEngine === 'google-news' ? '#ea4335' : 'var(--line)'),
-                borderRadius: '16px',
-                padding: '3px 10px',
-                fontSize: '0.76rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              <Newspaper size={11} /> Google News
-            </button>
-
-            {searchQuery.trim() && (
-              <a
-                href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  color: 'var(--fg-muted)',
-                  fontSize: '0.74rem',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '3px',
-                  marginLeft: 'auto',
-                  textDecoration: 'none',
-                  fontWeight: 600,
-                }}
-                title="Open on Google.com in new tab"
-              >
-                Google.com <ExternalLink size={11} />
-              </a>
-            )}
-          </div>
+          </form>
         </div>
       </div>
 
-      {/* Quick Search on Google Banner when user types in Viralhoods mode */}
-      {searchEngine === 'viralhoods' && searchQuery.trim().length >= 2 && (
-        <div
-          style={{
-            background: 'linear-gradient(90deg, var(--bg-card) 0%, var(--bg-subtle) 100%)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-md)',
-            padding: '10px 16px',
-            marginBottom: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '10px',
-            fontSize: '0.86rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Globe size={15} style={{ color: 'var(--blue)' }} />
-            <span>
-              Searching Viralhoods for <strong>"{searchQuery}"</strong> ({filteredItems.length} stories found)
-            </span>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button
-              type="button"
-              onClick={() => handleSelectEngine('google')}
-              style={{
-                background: 'var(--blue-tint)',
-                color: 'var(--blue)',
-                border: '1px solid var(--blue)',
-                borderRadius: '6px',
-                padding: '4px 10px',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              Search on Google Index <ArrowRight size={12} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleSelectEngine('google-news')}
-              style={{
-                background: '#fef2f2',
-                color: '#dc2626',
-                border: '1px solid #f87171',
-                borderRadius: '6px',
-                padding: '4px 10px',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              Search Google News <ArrowRight size={12} />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* GOOGLE SEARCH & GOOGLE NEWS RESULTS VIEW */}
-      {(searchEngine === 'google' || searchEngine === 'google-news') ? (
-        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Header Panel for Google Search */}
+      {/* UNIFIED DUAL SEARCH RESULTS VIEW (Local News Content + Google Custom Search API) */}
+      {searchQuery.trim() ? (
+        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '28px' }}>
+          {/* Header Panel for Unified Search */}
           <div
             style={{
               background: 'var(--bg-card)',
               border: '1px solid var(--line-strong)',
               borderRadius: 'var(--radius-lg)',
-              padding: '24px',
+              padding: '20px 24px',
               boxShadow: 'var(--card-shadow)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '16px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <div style={{ display: 'flex', gap: '2px', alignItems: 'center', fontWeight: 900, fontSize: '1.2rem', letterSpacing: '-0.5px' }}>
+            <div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                <span
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    background: 'var(--blue-tint)',
+                    color: 'var(--blue)',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                  }}
+                >
+                  Unified Search Service
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--fg-muted)' }}>
+                  Local News Content &bull; Google Custom Search API
+                </span>
+                {unifiedData?.sourceBreakdown?.usingCustomSearchApi && (
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      background: 'rgba(52, 168, 83, 0.12)',
+                      color: '#2e7d32',
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    ⚡ Custom Search API Connected
+                  </span>
+                )}
+              </div>
+
+              <h2 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0 }}>
+                Results for &ldquo;{searchQuery}&rdquo;
+              </h2>
+            </div>
+
+            {/* Quick Metrics & Filter Tabs */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setSearchTab('all')}
+                style={{
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  background: searchTab === 'all' ? 'var(--blue)' : 'var(--bg-subtle)',
+                  color: searchTab === 'all' ? '#ffffff' : 'var(--fg)',
+                  border: '1px solid',
+                  borderColor: searchTab === 'all' ? 'var(--blue)' : 'var(--line)',
+                  borderRadius: '20px',
+                  padding: '5px 12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <Layers size={13} />
+                All ({filteredItems.length + (unifiedData?.googleResults?.length || 0)})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSearchTab('local')}
+                style={{
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  background: searchTab === 'local' ? 'var(--blue)' : 'var(--bg-subtle)',
+                  color: searchTab === 'local' ? '#ffffff' : 'var(--fg)',
+                  border: '1px solid',
+                  borderColor: searchTab === 'local' ? 'var(--blue)' : 'var(--line)',
+                  borderRadius: '20px',
+                  padding: '5px 12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                📰 Local News ({filteredItems.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSearchTab('google')}
+                style={{
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  background: searchTab === 'google' ? 'var(--blue)' : 'var(--bg-subtle)',
+                  color: searchTab === 'google' ? '#ffffff' : 'var(--fg)',
+                  border: '1px solid',
+                  borderColor: searchTab === 'google' ? 'var(--blue)' : 'var(--line)',
+                  borderRadius: '20px',
+                  padding: '5px 12px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                🌐 Google Search ({isSearching ? '...' : unifiedData?.googleResults?.length || 0})
+              </button>
+
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="icon-btn"
+                style={{
+                  textDecoration: 'none',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+                title="Open on Google.com in new tab"
+              >
+                Google.com <ExternalLink size={12} />
+              </a>
+            </div>
+          </div>
+
+          {/* SECTION 1: Local News Content */}
+          {(searchTab === 'all' || searchTab === 'local') && (
+            <section>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingBottom: '12px',
+                  marginBottom: '16px',
+                  borderBottom: '2px solid var(--line)',
+                  flexWrap: 'wrap',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '1.15rem', fontWeight: 800 }}>📰 Local News Content</span>
+                  <span
+                    style={{
+                      background: 'var(--blue)',
+                      color: '#fff',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
+                    }}
+                  >
+                    {filteredItems.length} {filteredItems.length === 1 ? 'story' : 'stories'}
+                  </span>
+                </div>
+                <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
+                  Verified editorial reporting from Viralhoods
+                </span>
+              </div>
+
+              {filteredItems.length === 0 ? (
+                <div
+                  style={{
+                    padding: '30px 20px',
+                    textAlign: 'center',
+                    background: 'var(--bg-card)',
+                    border: '1px dashed var(--line)',
+                    borderRadius: 'var(--radius-md)',
+                    color: 'var(--fg-muted)',
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: '0.92rem' }}>
+                    No local news stories match <strong>&ldquo;{searchQuery}&rdquo;</strong>.
+                    {searchTab === 'all' ? ' Review the Google Custom Search results below!' : ' Switch to Google Search or All tabs to view web dispatches.'}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <NewsCard
+                    item={filteredItems[0]}
+                    lead={true}
+                    isBookmarked={bookmarks.includes(filteredItems[0].id)}
+                    onToggleBookmark={onToggleBookmark}
+                    onOpenStory={onOpenStory}
+                  />
+
+                  {filteredItems.length > 1 && (
+                    <div className="grid" style={{ marginTop: '20px' }}>
+                      {filteredItems.slice(1).map((item) => (
+                        <NewsCard
+                          key={item.id}
+                          item={item}
+                          lead={false}
+                          isBookmarked={bookmarks.includes(item.id)}
+                          onToggleBookmark={onToggleBookmark}
+                          onOpenStory={onOpenStory}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* SECTION 2: Google Custom Search API & Web Index */}
+          {(searchTab === 'all' || searchTab === 'google') && (
+            <section>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingBottom: '12px',
+                  marginBottom: '16px',
+                  borderBottom: '2px solid var(--line)',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '1px', alignItems: 'center', fontWeight: 900, fontSize: '1.15rem' }}>
                     <span style={{ color: '#4285F4' }}>G</span>
                     <span style={{ color: '#EA4335' }}>o</span>
                     <span style={{ color: '#FBBC05' }}>o</span>
@@ -470,280 +495,276 @@ export const FeedView: React.FC<FeedViewProps> = ({
                     <span style={{ color: '#34A853' }}>l</span>
                     <span style={{ color: '#EA4335' }}>e</span>
                   </div>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: searchEngine === 'google' ? 'var(--blue-tint)' : '#fee2e2', color: searchEngine === 'google' ? 'var(--blue)' : '#b91c1c' }}>
-                    {searchEngine === 'google' ? 'Live Web Search Index' : 'Google News Breaking Wire'}
-                  </span>
-                </div>
-
-                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: '0 0 6px' }}>
-                  {searchQuery ? `Google Search: "${searchQuery}"` : 'Google Search Engine'}
-                </h2>
-                <p style={{ color: 'var(--fg-muted)', fontSize: '0.9rem', margin: 0 }}>
-                  Real-time Google search groundings, breaking publisher wire dispatches, and authoritative sources.
-                </p>
-              </div>
-
-              {/* Direct External Search Buttons */}
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery || 'top stories')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="icon-btn"
-                  style={{ textDecoration: 'none', fontWeight: 600, fontSize: '0.84rem' }}
-                >
-                  <Globe size={14} style={{ color: '#4285F4' }} /> Google Search ↗
-                </a>
-
-                <a
-                  href={`https://news.google.com/search?q=${encodeURIComponent(searchQuery || 'top news')}&hl=en-US&gl=US&ceid=US:en`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="icon-btn"
-                  style={{ textDecoration: 'none', fontWeight: 600, fontSize: '0.84rem' }}
-                >
-                  <Newspaper size={14} style={{ color: '#EA4335' }} /> Google News ↗
-                </a>
-
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery || 'news')}&tbm=isch`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="icon-btn"
-                  style={{ textDecoration: 'none', fontWeight: 600, fontSize: '0.84rem' }}
-                >
-                  Images ↗
-                </a>
-
-                <a
-                  href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery || 'news')}&tbm=vid`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="icon-btn"
-                  style={{ textDecoration: 'none', fontWeight: 600, fontSize: '0.84rem' }}
-                >
-                  Videos ↗
-                </a>
-              </div>
-            </div>
-
-            {/* Quick search input within panel if empty */}
-            {!searchQuery && (
-              <div style={{ marginTop: '20px', padding: '16px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)' }}>
-                <p style={{ margin: '0 0 10px', fontSize: '0.9rem', fontWeight: 600 }}>
-                  Enter any topic, keyword, or breaking event above to query Google in real time:
-                </p>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {['Artificial Intelligence Frontier', 'SpaceX Starship Orbit', 'Federal Reserve Interest Rates', 'Champions League Scores', 'James Webb Telescope Discoveries'].map((suggest) => (
-                    <button
-                      key={suggest}
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery(suggest);
-                        executeGoogleSearch(suggest);
-                      }}
-                      style={{
-                        padding: '4px 10px',
-                        background: 'var(--bg)',
-                        border: '1px solid var(--line)',
-                        borderRadius: '14px',
-                        fontSize: '0.78rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {suggest}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Loading Indicator */}
-          {isSearchingGoogle && (
-            <div style={{ textAlign: 'center', padding: '50px 20px', background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--line)' }}>
-              <Loader2 size={32} className="animate-spin" style={{ color: 'var(--blue)', margin: '0 auto 12px' }} />
-              <h4 style={{ margin: '0 0 4px', fontSize: '1.1rem' }}>Querying Google Search Engine...</h4>
-              <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
-                Fetching live web indexing and publisher dispatches via Google Search grounding.
-              </p>
-            </div>
-          )}
-
-          {/* Google Search AI Overview Card */}
-          {!isSearchingGoogle && googleData?.aiOverview && (
-            <div
-              style={{
-                background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.06) 0%, rgba(52, 168, 83, 0.04) 100%)',
-                border: '1px solid rgba(66, 133, 244, 0.25)',
-                borderRadius: 'var(--radius-lg)',
-                padding: '22px 26px',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                <Sparkles size={16} style={{ color: 'var(--blue)' }} />
-                <span style={{ fontSize: '0.84rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--blue)' }}>
-                  Google Search AI Overview & Verification
-                </span>
-              </div>
-              <p style={{ fontSize: '0.98rem', lineHeight: 1.6, margin: '0 0 14px', color: 'var(--fg)' }}>
-                {googleData.aiOverview}
-              </p>
-
-              {/* Related Google Web Queries */}
-              {googleData.webQueries && googleData.webQueries.length > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 600 }}>
-                    Google search queries:
-                  </span>
-                  {googleData.webQueries.map((wq) => (
-                    <button
-                      key={wq}
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery(wq);
-                        executeGoogleSearch(wq);
-                      }}
-                      style={{
-                        padding: '3px 9px',
-                        background: 'var(--bg)',
-                        border: '1px solid var(--line)',
-                        borderRadius: '12px',
-                        fontSize: '0.76rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        color: 'var(--blue)',
-                      }}
-                    >
-                      {wq}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Google Search Results Grid / List */}
-          {!isSearchingGoogle && googleData?.results && googleData.results.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
-                <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--fg-muted)' }}>
-                  {googleData.results.length} results returned from Google Search Index
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleSelectEngine('viralhoods')}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--blue)',
-                    fontSize: '0.84rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  Return to Viralhoods Newsfeed <ArrowRight size={13} />
-                </button>
-              </div>
-
-              {googleData.results.map((res, idx) => {
-                const isInternalStory = res.url.startsWith('#story-');
-                return (
-                  <div
-                    key={idx}
+                  <span style={{ fontSize: '1.15rem', fontWeight: 800 }}>Custom Search &amp; Web Index</span>
+                  <span
                     style={{
-                      background: 'var(--bg-card)',
+                      background: 'var(--bg-subtle)',
                       border: '1px solid var(--line)',
-                      borderRadius: 'var(--radius-md)',
-                      padding: '18px 20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      transition: 'border-color 0.15s ease',
+                      color: 'var(--fg)',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '12px',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
-                        {res.isGoogleNews ? (
-                          <Newspaper size={13} style={{ color: '#EA4335' }} />
-                        ) : (
-                          <Globe size={13} style={{ color: '#4285F4' }} />
-                        )}
-                        <span style={{ fontWeight: 700, color: 'var(--fg)' }}>{res.source}</span>
-                        {res.date && (
-                          <>
-                            <span>·</span>
-                            <span>{new Date(res.date).toLocaleDateString()}</span>
-                          </>
-                        )}
-                      </div>
+                    Entire Google
+                  </span>
+                </div>
 
-                      {res.isGoogleNews && (
-                        <span style={{ fontSize: '0.72rem', fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px' }}>
-                          Google News
-                        </span>
-                      )}
-                    </div>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <a
+                    href={`https://news.google.com/search?q=${encodeURIComponent(searchQuery)}&hl=en-US&gl=US&ceid=US:en`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: '0.78rem',
+                      color: '#ea4335',
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <Newspaper size={12} /> Google News ↗
+                  </a>
+                  <a
+                    href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery)}&tbm=isch`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: '0.78rem',
+                      color: 'var(--blue)',
+                      fontWeight: 700,
+                      textDecoration: 'none',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    Images ↗
+                  </a>
+                </div>
+              </div>
 
-                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.4 }}>
-                      <a
-                        href={res.url}
-                        target={isInternalStory ? '_self' : '_blank'}
-                        rel={isInternalStory ? '' : 'noopener noreferrer'}
-                        style={{ color: 'var(--fg)', textDecoration: 'none' }}
-                        onMouseOver={(e) => (e.currentTarget.style.color = 'var(--blue)')}
-                        onMouseOut={(e) => (e.currentTarget.style.color = 'var(--fg)')}
-                      >
-                        {res.title} {!isInternalStory && <ExternalLink size={13} style={{ display: 'inline', marginLeft: '4px', verticalAlign: 'middle', color: 'var(--blue)' }} />}
-                      </a>
-                    </h3>
+              {/* Loading Indicator */}
+              {isSearching && (
+                <div style={{ textAlign: 'center', padding: '50px 20px', background: 'var(--bg-card)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--line)' }}>
+                  <Loader2 size={32} className="animate-spin" style={{ color: 'var(--blue)', margin: '0 auto 12px' }} />
+                  <h4 style={{ margin: '0 0 4px', fontSize: '1.1rem' }}>Querying Google Custom Search &amp; Web Index...</h4>
+                  <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+                    Fetching live web index, publisher dispatches, and custom search records.
+                  </p>
+                </div>
+              )}
 
-                    <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
-                      {res.snippet}
-                    </p>
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '4px', marginTop: '4px' }}>
-                      <a
-                        href={res.url}
-                        target={isInternalStory ? '_self' : '_blank'}
-                        rel={isInternalStory ? '' : 'noopener noreferrer'}
-                        style={{
-                          fontSize: '0.8rem',
-                          color: 'var(--blue)',
-                          fontWeight: 700,
-                          textDecoration: 'none',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        {isInternalStory ? 'Read in Viralhoods' : 'Read original report on source'} <ArrowRight size={12} />
-                      </a>
-
-                      <a
-                        href={`https://www.google.com/search?q=${encodeURIComponent(res.title)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          fontSize: '0.78rem',
-                          color: 'var(--fg-muted)',
-                          textDecoration: 'none',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                        }}
-                      >
-                        Google Search <ExternalLink size={11} />
-                      </a>
-                    </div>
+              {/* Google Search AI Overview Card */}
+              {!isSearching && unifiedData?.aiOverview && (
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(66, 133, 244, 0.06) 0%, rgba(52, 168, 83, 0.04) 100%)',
+                    border: '1px solid rgba(66, 133, 244, 0.25)',
+                    borderRadius: 'var(--radius-lg)',
+                    padding: '22px 26px',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                    <Sparkles size={16} style={{ color: 'var(--blue)' }} />
+                    <span style={{ fontSize: '0.84rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--blue)' }}>
+                      Google Search Overview &amp; Verification
+                    </span>
                   </div>
-                );
-              })}
-            </div>
+                  <p style={{ fontSize: '0.98rem', lineHeight: 1.6, margin: '0 0 14px', color: 'var(--fg)' }}>
+                    {unifiedData.aiOverview}
+                  </p>
+
+                  {/* Related Google Web Queries */}
+                  {unifiedData.webQueries && unifiedData.webQueries.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 600 }}>
+                        Related searches:
+                      </span>
+                      {unifiedData.webQueries.map((wq) => (
+                        <button
+                          key={wq}
+                          type="button"
+                          onClick={() => {
+                            setSearchQuery(wq);
+                            runUnifiedSearch(wq);
+                          }}
+                          style={{
+                            padding: '3px 9px',
+                            background: 'var(--bg)',
+                            border: '1px solid var(--line)',
+                            borderRadius: '12px',
+                            fontSize: '0.76rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            color: 'var(--blue)',
+                          }}
+                        >
+                          {wq}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Google Search Results Grid / List */}
+              {!isSearching && unifiedData?.googleResults && unifiedData.googleResults.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 4px' }}>
+                    <span style={{ fontSize: '0.86rem', fontWeight: 700, color: 'var(--fg-muted)' }}>
+                      {unifiedData.googleResults.length} results returned from Google Search
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setUnifiedData(null);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--blue)',
+                        fontSize: '0.84rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      Clear Search Filter <X size={13} />
+                    </button>
+                  </div>
+
+                  {unifiedData.googleResults.map((res, idx) => {
+                    const isInternalStory = res.url.startsWith('#story-');
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--radius-md)',
+                          padding: '18px 20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          transition: 'border-color 0.15s ease',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
+                            {res.isGoogleNews ? (
+                              <Newspaper size={13} style={{ color: '#EA4335' }} />
+                            ) : (
+                              <Globe size={13} style={{ color: '#4285F4' }} />
+                            )}
+                            <span style={{ fontWeight: 700, color: 'var(--fg)' }}>{res.source}</span>
+                            {res.date && (
+                              <>
+                                <span>&bull;</span>
+                                <span>{new Date(res.date).toLocaleDateString()}</span>
+                              </>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            {res.isCustomSearch && (
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, background: 'rgba(66, 133, 244, 0.12)', color: 'var(--blue)', padding: '2px 6px', borderRadius: '4px' }}>
+                                Custom Search
+                              </span>
+                            )}
+                            {res.isGoogleNews && (
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: '4px' }}>
+                                Google News
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
+                          {res.thumbnail && (
+                            <img
+                              src={res.thumbnail}
+                              alt=""
+                              style={{
+                                width: '70px',
+                                height: '70px',
+                                objectFit: 'cover',
+                                borderRadius: 'var(--radius-sm)',
+                                flexShrink: 0,
+                                border: '1px solid var(--line)',
+                              }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                          )}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <h3 style={{ margin: '0 0 6px', fontSize: '1.08rem', fontWeight: 700, lineHeight: 1.4 }}>
+                              <a
+                                href={res.url}
+                                target={isInternalStory ? '_self' : '_blank'}
+                                rel={isInternalStory ? '' : 'noopener noreferrer'}
+                                style={{ color: 'var(--fg)', textDecoration: 'none' }}
+                                onMouseOver={(e) => (e.currentTarget.style.color = 'var(--blue)')}
+                                onMouseOut={(e) => (e.currentTarget.style.color = 'var(--fg)')}
+                              >
+                                {res.title} {!isInternalStory && <ExternalLink size={13} style={{ display: 'inline', marginLeft: '4px', verticalAlign: 'middle', color: 'var(--blue)' }} />}
+                              </a>
+                            </h3>
+
+                            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--fg-muted)', lineHeight: 1.5 }}>
+                              {res.snippet}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '4px', marginTop: '4px' }}>
+                          <a
+                            href={res.url}
+                            target={isInternalStory ? '_self' : '_blank'}
+                            rel={isInternalStory ? '' : 'noopener noreferrer'}
+                            style={{
+                              fontSize: '0.8rem',
+                              color: 'var(--blue)',
+                              fontWeight: 700,
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            {isInternalStory ? 'Read in Viralhoods' : 'Read original report on source'} <ArrowRight size={12} />
+                          </a>
+
+                          <a
+                            href={`https://www.google.com/search?q=${encodeURIComponent(res.title)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: '0.78rem',
+                              color: 'var(--fg-muted)',
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                            }}
+                          >
+                            Google Search <ExternalLink size={11} />
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           )}
         </div>
       ) : (
@@ -804,35 +825,18 @@ export const FeedView: React.FC<FeedViewProps> = ({
                     <p style={{ color: 'var(--fg-muted)', margin: '0 0 18px', maxWidth: '520px', marginLeft: 'auto', marginRight: 'auto' }}>
                       {showOnlyBookmarks
                         ? "You haven't bookmarked any stories yet. Click the bookmark icon on any card to save it."
-                        : `No stories match "${searchQuery}" in our local database. Would you like to search the entire web via Google?`}
+                        : "There are currently no articles in this category."}
                     </p>
 
-                    {searchQuery && (
+                    {showOnlyBookmarks && (
                       <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
                         <button
                           type="button"
                           className="btn-primary"
-                          onClick={() => handleSelectEngine('google')}
+                          onClick={onClearBookmarksFilter}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                         >
-                          <Globe size={14} /> Search on Google Search
-                        </button>
-
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => handleSelectEngine('google-news')}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                        >
-                          <Newspaper size={14} /> Search Google News
-                        </button>
-
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => setSearchQuery('')}
-                        >
-                          Clear filter
+                          View all stories
                         </button>
                       </div>
                     )}

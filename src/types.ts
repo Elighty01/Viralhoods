@@ -47,7 +47,7 @@ export const CHIEF_ADMIN_EMAILS = [
 ] as const;
 
 export const CHIEF_ADMIN_EMAIL = 'tobionlyn@gmail.com';
-export const VIRALHOODS_ADMIN_USERNAME = 'Viralhoods';
+export const VIRALHOODS_ADMIN_USERNAME = 'tobionlyn@gmail.com';
 export const VIRALHOODS_ADMIN_PASSWORD = '2026@Wemakingit';
 export const ADMIN_MASTER_PASSWORD = '2026@Wemakingit';
 export const ACCEPTED_ADMIN_PASSWORDS = ['2026@Wemakingit', '2026@Password'];
@@ -57,7 +57,8 @@ export const isChiefAdminEmail = (emailOrUsername?: string | null): boolean => {
   const clean = emailOrUsername.trim().toLowerCase();
   return (
     CHIEF_ADMIN_EMAILS.some((chief) => chief.toLowerCase() === clean) ||
-    clean === 'chiefadmin'
+    clean === 'chiefadmin' ||
+    clean === CHIEF_ADMIN_EMAIL.toLowerCase()
   );
 };
 
@@ -84,3 +85,48 @@ export const CATEGORIES = [
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
+
+export interface GoogleSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+  date?: string;
+  isGoogleNews?: boolean;
+  isCustomSearch?: boolean;
+  displayLink?: string;
+  thumbnail?: string;
+}
+
+export interface LocalSearchResultItem {
+  id: string;
+  title: string;
+  summary: string;
+  category: string;
+  source: string;
+  date: string;
+  url: string;
+  image?: string;
+  author?: string;
+  readTime?: string;
+  score?: number;
+}
+
+export interface UnifiedSearchResponse {
+  query: string;
+  sourceBreakdown: {
+    total: number;
+    localNewsCount: number;
+    googleCount: number;
+    usingCustomSearchApi: boolean;
+  };
+  localResults: LocalSearchResultItem[];
+  googleResults: GoogleSearchResultItem[];
+  aiOverview?: string;
+  webQueries?: string[];
+  groundingSources?: { title: string; url: string }[];
+  directGoogleUrl: string;
+  directGoogleNewsUrl: string;
+  directGoogleImagesUrl?: string;
+  directGoogleVideosUrl?: string;
+}

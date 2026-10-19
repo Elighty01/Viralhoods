@@ -53,7 +53,7 @@ export const setChiefAdminStealthMode = (mode: 'hidden' | 'masked'): void => {
 };
 
 /**
- * Internal raw list of all administrator entries
+ * Internal raw list of all administrator entries - Chief Admin is the sole authorized administrator
  */
 export const getRawAdminList = (): AdminMember[] => {
   const defaultChief: AdminMember = {
@@ -62,90 +62,44 @@ export const getRawAdminList = (): AdminMember[] => {
     addedBy: 'System',
     addedAt: '2026-01-01T00:00:00.000Z',
     isChief: true,
-    invisibleToStaff: true,
-  };
-  const defaultViralhoods: AdminMember = {
-    email: VIRALHOODS_ADMIN_USERNAME,
-    name: 'Viralhoods Administrator',
-    addedBy: 'System',
-    addedAt: '2026-01-01T00:00:00.000Z',
-    isChief: false,
+    invisibleToStaff: false,
   };
 
   try {
     const raw = localStorage.getItem(ADMINS_KEY);
     if (!raw) {
-      localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief, defaultViralhoods]));
-      return [defaultChief, defaultViralhoods];
+      localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief]));
+      return [defaultChief];
     }
     const list: AdminMember[] = JSON.parse(raw);
-    let updated = [...list];
-    if (!updated.some((a) => a.email.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase())) {
-      updated.unshift(defaultChief);
+    // User requested: Remove all admins, leave only the chief admin!
+    const chiefOnly = list.filter((a) => isChiefAdminEmail(a.email) || a.isChief);
+    if (chiefOnly.length === 0) {
+      chiefOnly.push(defaultChief);
     }
-    if (!updated.some((a) => a.email.toLowerCase() === VIRALHOODS_ADMIN_USERNAME.toLowerCase())) {
-      updated.push(defaultViralhoods);
-    }
-    if (updated.length !== list.length) {
-      localStorage.setItem(ADMINS_KEY, JSON.stringify(updated));
-    }
-    return updated;
+    // Always persist strictly chief-admin only
+    localStorage.setItem(ADMINS_KEY, JSON.stringify(chiefOnly));
+    return chiefOnly;
   } catch {
-    return [defaultChief, defaultViralhoods];
+    return [defaultChief];
   }
 };
 
 /**
- * Gets appointed administrators, enforcing invisibility rules:
- * - If the viewer IS the Chief Administrator: returns full authentic roster with Chief roles.
- * - If the viewer is ANOTHER administrator: Chief Admin status is INVISIBLE (omitted or masked).
+ * Gets appointed administrators, enforcing Chief Administrator exclusivity:
  */
-export const getAdminMembers = (viewerEmailOrUsername?: string | null): AdminMember[] => {
-  const rawList = getRawAdminList();
-  const isChiefViewer = isChiefAdminEmail(viewerEmailOrUsername);
-
-  if (isChiefViewer) {
-    // Chief Administrator sees the true roster and identities
-    return rawList;
-  }
-
-  // For other admins: Chief Admin status is strictly invisible!
-  const stealthMode = getChiefAdminStealthMode();
-
-  if (stealthMode === 'hidden') {
-    // Completely hide Chief Administrator accounts from other staff administrators
-    return rawList.filter((member) => !isChiefAdminEmail(member.email) && !member.isChief);
-  }
-
-  // Masked mode: Render Chief Admin as a normal staff administrator without chief attributes
-  return rawList.map((member) => {
-    if (isChiefAdminEmail(member.email) || member.isChief) {
-      return {
-        ...member,
-        isChief: false,
-        name: 'Administrator',
-        addedBy: 'Editorial Desk',
-      };
-    }
-    return member;
-  });
+export const getAdminMembers = (_viewerEmailOrUsername?: string | null): AdminMember[] => {
+  return getRawAdminList();
 };
 
 /**
  * Checks if email or username has admin privileges
+ * Solely the Chief Administrator is granted admin access!
  */
 export const isUserAdmin = (emailOrUsername?: string | null): boolean => {
   if (!emailOrUsername) return false;
   const clean = emailOrUsername.trim().toLowerCase();
-  if (
-    isChiefAdminEmail(clean) ||
-    clean === 'viralhoods' ||
-    clean === VIRALHOODS_ADMIN_USERNAME.toLowerCase()
-  ) {
-    return true;
-  }
-  const admins = getRawAdminList();
-  return admins.some((a) => a.email.toLowerCase() === clean);
+  return isChiefAdminEmail(clean);
 };
 
 /**
@@ -235,10 +189,10 @@ export const removeAdminMember = (
  * Gets all locally registered member accounts
  */
 export const getRegisteredAccounts = (): RegisteredAccount[] => {
-  const defaultViralhoodsAccount: RegisteredAccount = {
-    usernameOrEmail: VIRALHOODS_ADMIN_USERNAME,
-    password: VIRALHOODS_ADMIN_PASSWORD,
-    name: 'Viralhoods Administrator',
+  const defaultChiefAccount: RegisteredAccount = {
+    usernameOrEmail: CHIEF_ADMIN_EMAIL,
+    password: ADMIN_MASTER_PASSWORD,
+    name: 'Chief Administrator',
     createdAt: '2026-01-01T00:00:00.000Z',
     isAdmin: true,
   };
@@ -246,29 +200,28 @@ export const getRegisteredAccounts = (): RegisteredAccount[] => {
   try {
     const raw = localStorage.getItem(ACCOUNTS_KEY);
     if (!raw) {
-      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify([defaultViralhoodsAccount]));
-      return [defaultViralhoodsAccount];
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify([defaultChiefAccount]));
+      return [defaultChiefAccount];
     }
     const accounts: RegisteredAccount[] = JSON.parse(raw);
     const existingIdx = accounts.findIndex(
-      (a) => a.usernameOrEmail.toLowerCase() === VIRALHOODS_ADMIN_USERNAME.toLowerCase()
+      (a) => a.usernameOrEmail.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase()
     );
     if (existingIdx === -1) {
-      accounts.unshift(defaultViralhoodsAccount);
-      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+      accounts.unshift(defaultChiefAccount);
     } else {
-      if (
-        accounts[existingIdx].password !== VIRALHOODS_ADMIN_PASSWORD ||
-        !accounts[existingIdx].isAdmin
-      ) {
-        accounts[existingIdx].password = VIRALHOODS_ADMIN_PASSWORD;
-        accounts[existingIdx].isAdmin = true;
-        localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+      accounts[existingIdx].isAdmin = true;
+    }
+    // Remove admin privilege from all other accounts
+    for (const acc of accounts) {
+      if (!isChiefAdminEmail(acc.usernameOrEmail)) {
+        acc.isAdmin = false;
       }
     }
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
     return accounts;
   } catch {
-    return [defaultViralhoodsAccount];
+    return [defaultChiefAccount];
   }
 };
 
