@@ -43,7 +43,6 @@ export interface RegisteredAccount {
 
 export const CHIEF_ADMIN_EMAILS = [
   'tobionlyn@gmail.com',
-  'yussuftimi@gmail.com',
 ] as const;
 
 export const CHIEF_ADMIN_EMAIL = 'tobionlyn@gmail.com';
@@ -56,9 +55,8 @@ export const isChiefAdminEmail = (emailOrUsername?: string | null): boolean => {
   if (!emailOrUsername) return false;
   const clean = emailOrUsername.trim().toLowerCase();
   return (
-    CHIEF_ADMIN_EMAILS.some((chief) => chief.toLowerCase() === clean) ||
-    clean === 'chiefadmin' ||
-    clean === CHIEF_ADMIN_EMAIL.toLowerCase()
+    clean === CHIEF_ADMIN_EMAIL.toLowerCase() ||
+    clean === 'chiefadmin'
   );
 };
 

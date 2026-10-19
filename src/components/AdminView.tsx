@@ -25,6 +25,8 @@ import {
   getRegisteredAccounts,
   getChiefAdminStealthMode,
   setChiefAdminStealthMode,
+  deleteAdminCompletelyAndPurgeHistory,
+  purgeRemovedAdminHistory,
 } from '../utils/storage';
 import { generateOriginalStory } from '../utils/articleGenerator';
 import { db } from '../firebase';
@@ -112,35 +114,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
     'stats'
   );
 
-  // Security gate username & password state
-  const [adminUsernameInput, setAdminUsernameInput] = useState('Viralhoods');
+  // Security gate username & password state - Restricted exclusively to Chief Administrator
+  const [adminUsernameInput, setAdminUsernameInput] = useState(CHIEF_ADMIN_EMAIL);
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
-  // Auto-sync Viralhoods staff admin credentials to Firestore
+  // Auto-cleanup non-chief admin records from Firestore and storage
   useEffect(() => {
-    const syncViralhoodsAdmin = async () => {
+    const purgeNonChiefAdmins = async () => {
       try {
-        await setDoc(doc(db, 'admins', 'viralhoods'), {
-          username: 'Viralhoods',
-          email: 'viralhoods',
-          role: 'Staff Administrator',
-          addedBy: 'Chief Administrator',
-          isChief: false,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
-
-        await setDoc(doc(db, 'members', 'viralhoods'), {
-          usernameOrEmail: 'Viralhoods',
-          name: 'Viralhoods Administrator',
-          isAdmin: true,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
+        await deleteDoc(doc(db, 'admins', 'viralhoods'));
+        await deleteDoc(doc(db, 'admins', 'yussuftimi'));
+        await deleteDoc(doc(db, 'admins', 'yussuftimi_gmail_com'));
+        await deleteDoc(doc(db, 'members', 'viralhoods'));
+        await deleteDoc(doc(db, 'members', 'yussuftimi'));
+        await deleteDoc(doc(db, 'members', 'yussuftimi_gmail_com'));
       } catch (e) {
-        console.warn('Firestore admin sync note:', e);
+        // quiet cleanup
       }
     };
-    syncViralhoodsAdmin();
+    purgeNonChiefAdmins();
   }, []);
 
   // Automated Scraper Bot state
@@ -370,26 +363,53 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 
-  // Only Chief Admin can remove an appointed admin
+  // Only Chief Admin can remove an appointed admin and completely delete all their history, codes, and tokens
   const handleRemoveAdmin = async (emailOrUsername: string) => {
     if (!isChiefAdmin) {
       setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has authority to remove administrators.', isError: true });
       return;
     }
+    deleteAdminCompletelyAndPurgeHistory(emailOrUsername);
     const res = removeAdminMember(emailOrUsername, currentUser?.email || CHIEF_ADMIN_EMAIL);
     if (res.success) {
-      setAdminActionMsg({ text: res.message, isError: false });
-      setAdminMembers(getAdminMembers(currentUser?.email));
-      // Remove from Firestore 'admins' collection
+      // Remove from Firestore 'admins' and 'members' collections
       try {
         const cleanKey = emailOrUsername.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
         await deleteDoc(doc(db, 'admins', cleanKey));
+        await deleteDoc(doc(db, 'members', cleanKey));
       } catch (err) {
         console.warn('Firestore admin delete note:', err);
       }
+      setAdminMembers(getAdminMembers(currentUser?.email));
+      setAdminActionMsg({
+        text: `Admin ${emailOrUsername} has been permanently deleted and all their history, codes, and access purged from the system.`,
+        isError: false,
+      });
     } else {
       setAdminActionMsg({ text: res.message, isError: true });
     }
+    setTimeout(() => setAdminActionMsg(null), 5000);
+  };
+
+  // One-click purge to delete all non-chief admins and their entire histories/codes
+  const handlePurgeAllNonChiefAdmins = async () => {
+    if (!isChiefAdmin) return;
+    deleteAdminCompletelyAndPurgeHistory();
+    try {
+      await deleteDoc(doc(db, 'admins', 'viralhoods'));
+      await deleteDoc(doc(db, 'admins', 'yussuftimi'));
+      await deleteDoc(doc(db, 'admins', 'yussuftimi_gmail_com'));
+      await deleteDoc(doc(db, 'members', 'viralhoods'));
+      await deleteDoc(doc(db, 'members', 'yussuftimi'));
+      await deleteDoc(doc(db, 'members', 'yussuftimi_gmail_com'));
+    } catch {
+      // quiet
+    }
+    setAdminMembers(getAdminMembers(currentUser?.email));
+    setAdminActionMsg({
+      text: 'All other admins removed. The Chief Administrator is now the sole authorized administrator in the system.',
+      isError: false,
+    });
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 
@@ -2842,7 +2862,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               padding: '24px',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
               <div>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 4px' }}>
                   Active Administrator Roster ({adminMembers.length})
@@ -2851,6 +2871,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   Individuals authorized to manage news stories, trigger bots, and review reader subscriptions.
                 </p>
               </div>
+              {isChiefAdmin && (
+                <button
+                  type="button"
+                  onClick={handlePurgeAllNonChiefAdmins}
+                  style={{
+                    background: 'var(--bg-subtle)',
+                    border: '1px solid var(--line)',
+                    color: '#ef4444',
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Purge all other admins and leave only the Chief Administrator"
+                >
+                  <Trash2 size={14} /> Purge All Non-Chief Admins
+                </button>
+              )}
             </div>
 
             <div style={{ overflowX: 'auto' }}>
@@ -2885,6 +2928,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 color: '#ffffff',
                                 display: 'flex',
                                 alignItems: 'center',
+                                justifySelf: 'center',
                                 justifyContent: 'center',
                                 fontSize: '0.75rem',
                                 fontWeight: 800,
@@ -2937,14 +2981,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                       background: '#ef4444',
                                       border: 'none',
                                       color: '#ffffff',
-                                      padding: '5px 10px',
+                                      padding: '5px 12px',
                                       borderRadius: 'var(--radius-md)',
                                       fontSize: '0.8rem',
                                       fontWeight: 800,
                                       cursor: 'pointer',
                                     }}
                                   >
-                                    Confirm Revoke
+                                    Confirm Permanent Erase
                                   </button>
                                   <button
                                     type="button"
@@ -2980,7 +3024,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                     gap: '4px',
                                   }}
                                 >
-                                  <UserMinus size={13} /> Remove Admin
+                                  <UserMinus size={13} /> Delete Admin &amp; Erase History
                                 </button>
                               )
                             )}

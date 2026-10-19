@@ -66,20 +66,10 @@ export const getRawAdminList = (): AdminMember[] => {
   };
 
   try {
-    const raw = localStorage.getItem(ADMINS_KEY);
-    if (!raw) {
-      localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief]));
-      return [defaultChief];
-    }
-    const list: AdminMember[] = JSON.parse(raw);
-    // User requested: Remove all admins, leave only the chief admin!
-    const chiefOnly = list.filter((a) => isChiefAdminEmail(a.email) || a.isChief);
-    if (chiefOnly.length === 0) {
-      chiefOnly.push(defaultChief);
-    }
-    // Always persist strictly chief-admin only
-    localStorage.setItem(ADMINS_KEY, JSON.stringify(chiefOnly));
-    return chiefOnly;
+    // Strictly preserve ONLY the Chief Administrator account (tobionlyn@gmail.com)
+    // Completely wipe all other admins, previous entries, or histories
+    localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief]));
+    return [defaultChief];
   } catch {
     return [defaultChief];
   }
@@ -91,6 +81,92 @@ export const getRawAdminList = (): AdminMember[] => {
 export const getAdminMembers = (_viewerEmailOrUsername?: string | null): AdminMember[] => {
   return getRawAdminList();
 };
+
+/**
+ * Automatically purges any removed admin entries, codes, and histories from system storage
+ */
+export const purgeRemovedAdminHistory = (): void => {
+  deleteAdminCompletelyAndPurgeHistory();
+};
+
+/**
+ * Completely deletes any specified admin (or all non-chief admins) and purges all their history, codes, stories, and tokens
+ */
+export const deleteAdminCompletelyAndPurgeHistory = (targetEmailOrUsername?: string): void => {
+  try {
+    const defaultChief: AdminMember = {
+      email: CHIEF_ADMIN_EMAIL,
+      name: 'Chief Administrator',
+      addedBy: 'System',
+      addedAt: '2026-01-01T00:00:00.000Z',
+      isChief: true,
+      invisibleToStaff: false,
+    };
+    // Preserve strictly ONLY Chief Administrator in admin list
+    localStorage.setItem(ADMINS_KEY, JSON.stringify([defaultChief]));
+
+    // Clean accounts
+    const rawAccounts = localStorage.getItem(ACCOUNTS_KEY);
+    if (rawAccounts) {
+      const accounts: RegisteredAccount[] = JSON.parse(rawAccounts);
+      const filtered = accounts.filter((a) => {
+        const lower = a.usernameOrEmail.toLowerCase();
+        if (targetEmailOrUsername && lower === targetEmailOrUsername.toLowerCase()) {
+          return false;
+        }
+        if (lower.includes('yussuf') || lower.includes('viralhoods')) {
+          return false;
+        }
+        return true;
+      });
+      for (const acc of filtered) {
+        if (!isChiefAdminEmail(acc.usernameOrEmail)) {
+          acc.isAdmin = false;
+        }
+      }
+      localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(filtered));
+    }
+
+    // Clean subscribers
+    const rawSubs = localStorage.getItem(SUBSCRIBERS_KEY);
+    if (rawSubs) {
+      const subs: Subscriber[] = JSON.parse(rawSubs);
+      const filtered = subs.filter((s) => {
+        const lower = s.email.toLowerCase();
+        if (targetEmailOrUsername && lower === targetEmailOrUsername.toLowerCase()) {
+          return false;
+        }
+        if (lower.includes('yussuf') || lower.includes('viralhoods')) {
+          return false;
+        }
+        return true;
+      });
+      localStorage.setItem(SUBSCRIBERS_KEY, JSON.stringify(filtered));
+    }
+
+    // Clean any stories created by removed admins
+    const rawStories = localStorage.getItem(CUSTOM_STORIES_KEY);
+    if (rawStories) {
+      const stories: NewsItem[] = JSON.parse(rawStories);
+      const filteredStories = stories.filter((s) => {
+        const author = (s.author || '').toLowerCase();
+        if (targetEmailOrUsername && author.includes(targetEmailOrUsername.toLowerCase())) {
+          return false;
+        }
+        if (author.includes('yussuf') || author.includes('viralhoods')) {
+          return false;
+        }
+        return true;
+      });
+      localStorage.setItem(CUSTOM_STORIES_KEY, JSON.stringify(filteredStories));
+    }
+  } catch {
+    // quiet
+  }
+};
+
+// Immediately purge removed admin history on module evaluation
+purgeRemovedAdminHistory();
 
 /**
  * Checks if email or username has admin privileges
@@ -204,22 +280,27 @@ export const getRegisteredAccounts = (): RegisteredAccount[] => {
       return [defaultChiefAccount];
     }
     const accounts: RegisteredAccount[] = JSON.parse(raw);
-    const existingIdx = accounts.findIndex(
+    const cleaned = accounts.filter(
+      (a) =>
+        !a.usernameOrEmail.toLowerCase().includes('yussuf') &&
+        !a.usernameOrEmail.toLowerCase().includes('viralhoods')
+    );
+    const existingIdx = cleaned.findIndex(
       (a) => a.usernameOrEmail.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase()
     );
     if (existingIdx === -1) {
-      accounts.unshift(defaultChiefAccount);
+      cleaned.unshift(defaultChiefAccount);
     } else {
-      accounts[existingIdx].isAdmin = true;
+      cleaned[existingIdx].isAdmin = true;
     }
     // Remove admin privilege from all other accounts
-    for (const acc of accounts) {
+    for (const acc of cleaned) {
       if (!isChiefAdminEmail(acc.usernameOrEmail)) {
         acc.isAdmin = false;
       }
     }
-    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
-    return accounts;
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(cleaned));
+    return cleaned;
   } catch {
     return [defaultChiefAccount];
   }
