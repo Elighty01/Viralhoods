@@ -14,6 +14,7 @@ import {
   BookOpen,
   Newspaper,
   Search,
+  Globe,
   Sparkles,
   ExternalLink,
   Copy,
@@ -927,6 +928,32 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                 }}
               />
             </div>
+
+            {/* Quick Google Search Integration */}
+            {searchQuery.trim() && (
+              <a
+                href={`https://www.google.com/search?q=${encodeURIComponent(searchQuery + ' ' + currentSubpage)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '6px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--blue-tint)',
+                  color: 'var(--blue)',
+                  border: '1px solid var(--blue)',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                  whiteSpace: 'nowrap',
+                }}
+                title="Search on Google in new tab"
+              >
+                <Globe size={13} /> Search Google ↗
+              </a>
+            )}
 
             {/* Genre Filters */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', scrollbarWidth: 'none' }}>
