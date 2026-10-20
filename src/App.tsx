@@ -10,6 +10,7 @@ import { AuthModal } from './components/AuthModal';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { AiMediaStudioModal } from './components/AiMediaStudioModal';
 import { NewsData, NewsItem, CATEGORIES, User } from './types';
+import { LogOut, X } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
 import { auth, onAuthStateChanged, fbSignOut, db } from './firebase';
 import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
@@ -53,6 +54,9 @@ export const App: React.FC = () => {
   const [isAiChatOpen, setIsAiChatOpen] = useState<boolean>(false);
   const [isAiStudioOpen, setIsAiStudioOpen] = useState<boolean>(false);
   const [pendingAiAction, setPendingAiAction] = useState<'chat' | 'studio' | null>(null);
+
+  // Sign out confirmation modal state
+  const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState<boolean>(false);
 
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<string[]>([]);
@@ -312,20 +316,10 @@ export const App: React.FC = () => {
   };
 
   const handleOpenAiAssistant = () => {
-    if (!currentUser) {
-      setPendingAiAction('chat');
-      handleOpenAuthWithMessage('Subscribers & Members Only: Please sign in or register your account to access the Viralhoods AI Intelligence Assistant.');
-      return;
-    }
     setIsAiChatOpen(true);
   };
 
   const handleOpenAiStudio = () => {
-    if (!currentUser) {
-      setPendingAiAction('studio');
-      handleOpenAuthWithMessage('Subscribers & Members Only: Please sign in or register your account to access the Viralhoods AI Media Studio.');
-      return;
-    }
     setIsAiStudioOpen(true);
   };
 
@@ -370,7 +364,12 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSignOut = async () => {
+  const handleRequestSignOut = () => {
+    setIsSignOutConfirmOpen(true);
+  };
+
+  const handleConfirmSignOut = async () => {
+    setIsSignOutConfirmOpen(false);
     try {
       await fbSignOut(auth);
     } catch (e) {
@@ -414,7 +413,7 @@ export const App: React.FC = () => {
         onOpenAiStudio={handleOpenAiStudio}
         currentUser={currentUser}
         onOpenAuth={() => handleOpenAuthWithMessage()}
-        onSignOut={handleSignOut}
+        onSignOut={handleRequestSignOut}
         theme={theme}
         onToggleTheme={handleToggleTheme}
         bookmarksCount={bookmarks.length}
@@ -510,6 +509,102 @@ export const App: React.FC = () => {
         currentUser={currentUser}
         onOpenAuth={handleOpenAuthWithMessage}
       />
+
+      {/* Sign Out Confirmation Modal */}
+      {isSignOutConfirmOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => setIsSignOutConfirmOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          style={{ zIndex: 120 }}
+        >
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: '440px',
+              width: '90%',
+              padding: '28px 24px',
+              textAlign: 'center',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setIsSignOutConfirmOpen(false)}
+                aria-label="Cancel sign out"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div
+              style={{
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                color: '#ef4444',
+              }}
+            >
+              <LogOut size={26} />
+            </div>
+
+            <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', fontWeight: 800 }}>
+              Confirm Sign Out
+            </h3>
+
+            <p style={{ margin: '0 0 22px', color: 'var(--fg-muted)', fontSize: '0.9rem', lineHeight: 1.55 }}>
+              Are you sure you want to sign out of Viralhoods
+              {currentUser ? (
+                <>
+                  {' '}as <strong>{currentUser.name || currentUser.email}</strong>
+                </>
+              ) : null}
+              ? You will need your login credentials to sign back in.
+            </p>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setIsSignOutConfirmOpen(false)}
+                style={{
+                  flex: 1,
+                  padding: '10px 16px',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleConfirmSignOut}
+                style={{
+                  flex: 1,
+                  padding: '10px 16px',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  background: '#ef4444',
+                  borderColor: '#ef4444',
+                  color: '#ffffff',
+                }}
+              >
+                Yes, Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

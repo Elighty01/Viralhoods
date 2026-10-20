@@ -121,7 +121,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   );
 
   // Security gate username & password state - Restricted exclusively to Chief Administrator
-  const [adminUsernameInput, setAdminUsernameInput] = useState(CHIEF_ADMIN_EMAIL);
+  const [adminUsernameInput, setAdminUsernameInput] = useState('');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
   const [passwordError, setPasswordError] = useState('');
 
@@ -835,7 +835,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 id="admin-username"
                 type="text"
                 className="form-input"
-                placeholder="Viralhoods"
+                placeholder="Enter admin username or email"
+                autoComplete="off"
                 required
                 value={adminUsernameInput}
                 onChange={(e) => setAdminUsernameInput(e.target.value)}

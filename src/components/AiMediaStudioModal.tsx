@@ -56,124 +56,6 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Member Protection: Feature is exclusive to signed-up members
-  if (!currentUser) {
-    return (
-      <div className="modal-overlay" onClick={onClose} role="dialog" aria-modal="true">
-        <div
-          className="modal-card"
-          onClick={(e) => e.stopPropagation()}
-          style={{ maxWidth: '520px', padding: '32px 24px', textAlign: 'center' }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
-            <button className="close-btn" onClick={onClose} aria-label="Close dialog">
-              <X size={20} />
-            </button>
-          </div>
-
-          <div
-            style={{
-              width: '64px',
-              height: '64px',
-              borderRadius: '50%',
-              background: 'rgba(2, 132, 199, 0.12)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 18px',
-            }}
-          >
-            <Lock size={32} color="var(--blue)" />
-          </div>
-
-          <span
-            style={{
-              fontSize: '0.78rem',
-              fontWeight: 800,
-              color: 'var(--sun)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}
-          >
-            Members Only Portal
-          </span>
-
-          <h3 style={{ margin: '6px 0 10px', fontSize: '1.45rem', fontWeight: 900 }}>
-            Unlock Viralhoods AI Media Studio
-          </h3>
-
-          <p style={{ margin: '0 0 24px', color: 'var(--fg-muted)', fontSize: '0.92rem', lineHeight: 1.55 }}>
-            The AI Media Studio is reserved exclusively for registered Viralhoods members. Create a free account or log in to generate cinematic videos, high-resolution visuals, original music, and grounded map intelligence.
-          </p>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: '12px',
-              textAlign: 'left',
-              marginBottom: '26px',
-            }}
-          >
-            <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
-              <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <Film size={14} /> Veo 3 Video
-              </div>
-              <div style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', marginTop: '4px' }}>
-                Generate cinematic 16:9 & 9:16 video clips with AI prompt engineering.
-              </div>
-            </div>
-
-            <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
-              <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <ImageIcon size={14} /> Nano Banana
-              </div>
-              <div style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', marginTop: '4px' }}>
-                Photorealistic image generation and editorial concept art.
-              </div>
-            </div>
-
-            <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
-              <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <Music size={14} /> Lyria Audio
-              </div>
-              <div style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', marginTop: '4px' }}>
-                Original music clips, background scores, and sonic atmospheres.
-              </div>
-            </div>
-
-            <div style={{ background: 'var(--bg-subtle)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '12px' }}>
-              <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--blue)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <MapPin size={14} /> Grounded Maps
-              </div>
-              <div style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', marginTop: '4px' }}>
-                Real-world places, venues, and geospatial insights.
-              </div>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => {
-              onClose();
-              onOpenAuth('Please create an account or sign in to use the AI Media Studio.');
-            }}
-            style={{
-              width: '100%',
-              padding: '13px',
-              borderRadius: 'var(--radius-md)',
-              fontWeight: 800,
-              fontSize: '0.95rem',
-            }}
-          >
-            Sign In or Join Free to Access
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // 1. Generate Video with Veo 3
   const handleGenerateVideo = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -585,8 +467,16 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
                 <img
                   src={generatedImage}
                   alt="Generated news graphic"
-                  style={{ width: '100%', borderRadius: 'var(--radius-md)', border: '1px solid var(--line)' }}
+                  style={{ width: '100%', borderRadius: 'var(--radius-md)', border: '1px solid var(--line)', marginBottom: '8px' }}
                 />
+                <a
+                  href={generatedImage}
+                  download="viralhoods-editorial-concept.png"
+                  className="btn-secondary"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', textDecoration: 'none' }}
+                >
+                  <Download size={14} /> Download Visual
+                </a>
               </div>
             )}
           </form>
