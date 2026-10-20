@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, ADMIN_MASTER_PASSWORD, CHIEF_ADMIN_EMAIL } from '../types';
+import { User, ADMIN_MASTER_PASSWORD, CHIEF_ADMIN_EMAIL, isChiefAdminEmail } from '../types';
 import {
   setCurrentUser,
   registerAccount,
@@ -49,32 +49,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Sync subscriber or account to Firestore
-  const syncToFirestore = async (userEmailOrUsername: string, isAccount = false) => {
+  // Sync registered user or login to Firestore & backend database
+  const syncToFirestore = async (userEmailOrUsername: string, isAccount = false, memberName?: string) => {
     try {
-      const cleanKey = userEmailOrUsername.replace(/[^a-zA-Z0-9]/g, '_');
-      if (userEmailOrUsername.includes('@')) {
-        const subRef = doc(db, 'subscribers', cleanKey);
-        await setDoc(
-          subRef,
-          {
-            email: userEmailOrUsername,
-            subscribedAt: new Date().toISOString(),
-            source: isAccount ? 'registration' : 'firebase_auth',
-          },
-          { merge: true }
-        );
-      }
+      const cleanKey = userEmailOrUsername.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+      const nowIso = new Date().toISOString();
+      const cleanEmail = userEmailOrUsername.includes('@') ? userEmailOrUsername : '';
+      const cleanName = memberName?.trim() || userEmailOrUsername.split('@')[0];
+
+      // 1. Sync to Firestore collection 'registered_users' (Database of all registered users for Chief Admin)
+      const userDocRef = doc(db, 'registered_users', cleanKey);
+      await setDoc(
+        userDocRef,
+        {
+          id: cleanKey,
+          usernameOrEmail: userEmailOrUsername,
+          email: cleanEmail || userEmailOrUsername,
+          name: cleanName,
+          registeredAt: nowIso,
+          lastLogin: nowIso,
+          source: isAccount ? 'registration' : 'login_portal',
+          isAdmin: isChiefAdminEmail(userEmailOrUsername),
+          device: typeof navigator !== 'undefined' ? (navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop') : 'Desktop',
+          browser: typeof navigator !== 'undefined' ? (navigator.userAgent.includes('Chrome') ? 'Chrome' : 'Browser') : 'Browser',
+        },
+        { merge: true }
+      );
+
+      // 2. Sync to Firestore 'members' collection
       const memberRef = doc(db, 'members', cleanKey);
       await setDoc(
         memberRef,
         {
           identifier: userEmailOrUsername,
-          lastActive: new Date().toISOString(),
+          name: cleanName,
+          lastActive: nowIso,
           type: isAccount ? 'password_account' : 'google_auth',
         },
         { merge: true }
       );
+
+      // 3. Sync to subscribers collection if email
+      if (cleanEmail) {
+        const subRef = doc(db, 'subscribers', cleanKey);
+        await setDoc(
+          subRef,
+          {
+            email: cleanEmail,
+            subscribedAt: nowIso,
+            source: isAccount ? 'registration' : 'firebase_auth',
+          },
+          { merge: true }
+        );
+      }
+
+      // 4. Send to backend database endpoint for permanent server-side persistence
+      try {
+        await fetch(isAccount ? '/api/members/register' : '/api/members/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            usernameOrEmail: userEmailOrUsername,
+            email: cleanEmail,
+            name: cleanName,
+            source: isAccount ? 'registration' : 'login_portal',
+          }),
+        });
+      } catch (backendErr) {
+        console.warn('Backend member storage sync note:', backendErr);
+      }
     } catch (err) {
       console.warn('Firestore sync note:', err);
     }
@@ -94,8 +137,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         throw new Error('Google account has no associated email address.');
       }
 
-      await syncToFirestore(cleanEmail);
-      const isAdmin = isUserAdmin(cleanEmail) || cleanEmail.toLowerCase() === CHIEF_ADMIN_EMAIL.toLowerCase();
+      await syncToFirestore(cleanEmail, true, displayName);
+      // STRICT SECURITY: Only tobionlyn@gmail.com can ever have isAdmin = true
+      const isAdmin = isChiefAdminEmail(cleanEmail);
       const user = setCurrentUser(cleanEmail, displayName, isAdmin);
 
       setStatusMessage(`Welcome ${displayName}! You are signed in.`);
@@ -233,8 +277,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return;
       }
 
-      await syncToFirestore(cleanId, true);
-      const isAdmin = verifyAdminPassword(password);
+      await syncToFirestore(cleanId, true, name);
+      // STRICT SECURITY: Exclusively tobionlyn@gmail.com is granted admin rights
+      const isAdmin = isChiefAdminEmail(cleanId);
       const user = setCurrentUser(cleanId, name || cleanId.split('@')[0], isAdmin);
 
       setStatusMessage('Account created successfully! Welcome to Viralhoods.');
@@ -256,8 +301,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     const acc = verifyResult.account!;
-    const isAdmin = Boolean(acc.isAdmin || verifyAdminPassword(password));
-    await syncToFirestore(cleanId, false);
+    // STRICT SECURITY: Only tobionlyn@gmail.com can ever hold admin rights
+    const isAdmin = isChiefAdminEmail(acc.usernameOrEmail);
+    await syncToFirestore(cleanId, false, acc.name);
     const user = setCurrentUser(cleanId, acc.name || cleanId.split('@')[0], isAdmin);
 
     setStatusMessage(`Welcome back${user.name ? ', ' + user.name : ''}!`);

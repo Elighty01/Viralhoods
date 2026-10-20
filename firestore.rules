@@ -6,20 +6,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // Chief Administrator verification
+    // Chief Administrator verification - Strictly tobionlyn@gmail.com only
     function isChiefAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'tobionlyn@gmail.com' ||
-        request.auth.token.email == 'yussuftimi@gmail.com'
-      );
+      return isSignedIn() && request.auth.token.email == 'tobionlyn@gmail.com';
     }
 
-    // Appointed administrator check
+    // Administrator check - Exclusively the Chief Administrator
     function isAdmin() {
-      return isSignedIn() && (
-        isChiefAdmin() ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isChiefAdmin();
     }
 
     // Stories: Publicly readable; editable by editorial sessions
@@ -41,6 +35,13 @@ service cloud.firestore {
     // Member Profiles
     match /members/{memberId} {
       allow read, write: if true;
+    }
+
+    // Registered Users Database (Drops all registrations and logins for Chief Admin access)
+    match /registered_users/{userId} {
+      allow create, update: if true;
+      allow read: if true;
+      allow delete: if isChiefAdmin();
     }
 
     // User Bookmarks

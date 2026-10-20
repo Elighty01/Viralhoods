@@ -1,0 +1,16 @@
+[
+  {
+    "id": "usr_1792491660122_wap0d",
+    "usernameOrEmail": "tobionlyn@gmail.com",
+    "email": "tobionlyn@gmail.com",
+    "name": "Chief Administrator",
+    "registeredAt": "2026-10-20T10:21:00.121Z",
+    "lastLogin": "2026-10-20T10:21:00.121Z",
+    "loginCount": 1,
+    "source": "registration",
+    "isAdmin": true,
+    "device": "Desktop",
+    "browser": "Chrome",
+    "location": "United States"
+  }
+]

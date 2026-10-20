@@ -359,7 +359,8 @@ export const registerAccount = (
     return { success: false, error: 'An account already exists with this username or email. Please sign in instead.' };
   }
 
-  const isAdmin = isUserAdmin(cleanId) || verifyAdminPassword(password);
+  // STRICT SECURITY: Only the Chief Administrator (tobionlyn@gmail.com) can ever hold admin rights!
+  const isAdmin = isChiefAdminEmail(cleanId);
 
   const newAccount: RegisteredAccount = {
     usernameOrEmail: cleanId,
@@ -388,6 +389,7 @@ export const registerAccount = (
 /**
  * Verifies credentials before signing in.
  * Users must already have an account created!
+ * STRICT SECURITY: Past staff or unauthorized accounts CANNOT obtain administrative access!
  */
 export const verifyAccountCredentials = (
   usernameOrEmail: string,
@@ -398,39 +400,25 @@ export const verifyAccountCredentials = (
     return { success: false, error: 'Please enter your username or email address.' };
   }
 
-  // Check if master password or chief admin
   const isMasterPass = verifyAdminPassword(password);
-  const isChiefOrAdmin = isUserAdmin(cleanId);
+  const isChief = isChiefAdminEmail(cleanId);
 
-  // Direct match for Viralhoods administrator credentials
-  if (cleanId === 'viralhoods' || cleanId === VIRALHOODS_ADMIN_USERNAME.toLowerCase()) {
-    if (password === VIRALHOODS_ADMIN_PASSWORD || isMasterPass) {
-      return {
-        success: true,
-        account: {
-          usernameOrEmail: VIRALHOODS_ADMIN_USERNAME,
-          password: VIRALHOODS_ADMIN_PASSWORD,
-          name: 'Viralhoods Administrator',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          isAdmin: true,
-        },
-      };
-    }
+  // If Chief Administrator logs in with Chief credentials
+  if (isChief && (password === ADMIN_MASTER_PASSWORD || isMasterPass)) {
+    return {
+      success: true,
+      account: {
+        usernameOrEmail: CHIEF_ADMIN_EMAIL,
+        password: ADMIN_MASTER_PASSWORD,
+        name: 'Chief Administrator',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        isAdmin: true,
+      },
+    };
   }
 
   const account = findRegisteredAccount(cleanId);
   if (!account) {
-    // If entered master password or chief admin email, allow admin bypass or prompt registration
-    if (isMasterPass || isChiefOrAdmin) {
-      const adminAcc: RegisteredAccount = {
-        usernameOrEmail: cleanId,
-        password,
-        name: isChiefAdminEmail(cleanId) ? 'Chief Administrator' : 'Administrator',
-        createdAt: new Date().toISOString(),
-        isAdmin: true,
-      };
-      return { success: true, account: adminAcc };
-    }
     return {
       success: false,
       error: 'No account found with this username or email. Members must create an account first before signing in.',
@@ -438,15 +426,16 @@ export const verifyAccountCredentials = (
   }
 
   // Account exists, verify password
-  if (account.password !== password && !isMasterPass) {
+  if (account.password !== password) {
     return { success: false, error: 'Incorrect password. Please try again or use Forgot Password.' };
   }
 
+  // STRICT SECURITY: Non-chief accounts CANNOT have admin rights, even if they know passwords
   return {
     success: true,
     account: {
       ...account,
-      isAdmin: Boolean(account.isAdmin || isMasterPass || isChiefOrAdmin),
+      isAdmin: isChiefAdminEmail(account.usernameOrEmail),
     },
   };
 };
@@ -456,6 +445,11 @@ export const getCurrentUser = (): User | null => {
     const raw = localStorage.getItem(USER_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
+    // Extra security check: revoke admin if not Chief Admin
+    if (parsed && parsed.isAdmin && !isChiefAdminEmail(parsed.email)) {
+      parsed.isAdmin = false;
+      localStorage.setItem(USER_KEY, JSON.stringify(parsed));
+    }
     return parsed;
   } catch {
     return null;
@@ -465,10 +459,11 @@ export const getCurrentUser = (): User | null => {
 export const setCurrentUser = (
   identifier: string,
   name?: string,
-  isAdmin: boolean = false
+  _isAdmin: boolean = false
 ): User => {
   const clean = identifier.trim().toLowerCase();
-  const effectiveIsAdmin = Boolean(isAdmin || isUserAdmin(clean));
+  // STRICT SECURITY ENFORCEMENT: Solely tobionlyn@gmail.com is ever granted isAdmin = true!
+  const effectiveIsAdmin = isChiefAdminEmail(clean);
   const user: User = {
     email: clean,
     name: name?.trim() || clean.split('@')[0],

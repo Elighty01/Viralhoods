@@ -14,6 +14,8 @@ export interface NewsItem {
   content?: string[];
   whyItMatters?: string;
   whatNext?: string;
+  subSector?: string;
+  tags?: string[];
 }
 
 export interface NewsData {
@@ -35,10 +37,25 @@ export interface User {
 
 export interface RegisteredAccount {
   usernameOrEmail: string;
-  password: string; // Stored locally/in firestore for member account validation
+  password?: string; // Stored locally/in firestore for member account validation
   name?: string;
   createdAt: string;
   isAdmin?: boolean;
+}
+
+export interface RegisteredMemberRecord {
+  id: string;
+  usernameOrEmail: string;
+  email: string;
+  name: string;
+  registeredAt: string;
+  lastLogin: string;
+  loginCount: number;
+  source: 'registration' | 'google_auth' | 'login_portal';
+  isAdmin: boolean;
+  device?: string;
+  browser?: string;
+  location?: string;
 }
 
 export const CHIEF_ADMIN_EMAILS = [
@@ -49,15 +66,12 @@ export const CHIEF_ADMIN_EMAIL = 'tobionlyn@gmail.com';
 export const VIRALHOODS_ADMIN_USERNAME = 'tobionlyn@gmail.com';
 export const VIRALHOODS_ADMIN_PASSWORD = '2026@Wemakingit';
 export const ADMIN_MASTER_PASSWORD = '2026@Wemakingit';
-export const ACCEPTED_ADMIN_PASSWORDS = ['2026@Wemakingit', '2026@Password'];
+export const ACCEPTED_ADMIN_PASSWORDS = ['2026@Wemakingit'];
 
 export const isChiefAdminEmail = (emailOrUsername?: string | null): boolean => {
   if (!emailOrUsername) return false;
   const clean = emailOrUsername.trim().toLowerCase();
-  return (
-    clean === CHIEF_ADMIN_EMAIL.toLowerCase() ||
-    clean === 'chiefadmin'
-  );
+  return clean === CHIEF_ADMIN_EMAIL.toLowerCase();
 };
 
 export interface AdminMember {
