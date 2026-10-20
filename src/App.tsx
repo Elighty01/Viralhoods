@@ -12,7 +12,7 @@ import { AiMediaStudioModal } from './components/AiMediaStudioModal';
 import { NewsData, NewsItem, CATEGORIES, User } from './types';
 import { LogOut, X } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
-import { auth, onAuthStateChanged, fbSignOut, db, getRedirectResult } from './firebase';
+import { auth, onAuthStateChanged, fbSignOut, db } from './firebase';
 import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
 import {
   getCurrentUser,
@@ -67,21 +67,11 @@ export const App: React.FC = () => {
 
   // Initialize theme, user, custom stories, and bookmarks on mount
   useEffect(() => {
+    // 1. User from local storage
     const user = getCurrentUser();
     if (user) setCurrentUser(user);
 
-    let mounted = true;
-
-    getRedirectResult(auth)
-      .then((result) => {
-        if (!mounted || !result?.user?.email) return;
-        const syncd = persistUser(result.user.email, result.user.displayName || '');
-        setCurrentUser(syncd);
-      })
-      .catch((err) => {
-        console.warn('Google redirect result note:', err);
-      });
-
+    // 2. Firebase Auth Listener
     const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser && fbUser.email) {
         const syncd = persistUser(fbUser.email, fbUser.displayName || '');
@@ -89,9 +79,13 @@ export const App: React.FC = () => {
       }
     });
 
+    // 3. Bookmarks
     setBookmarks(getBookmarks());
+
+    // 4. Custom stories
     setCustomStories(getCustomStories());
 
+    // 5. Theme
     const savedTheme = localStorage.getItem('viralhoods_theme') as 'light' | 'dark' | null;
     if (savedTheme) {
       setTheme(savedTheme);
@@ -105,10 +99,7 @@ export const App: React.FC = () => {
       document.documentElement.classList.add('dark');
     }
 
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   const handleToggleTheme = () => {
@@ -122,6 +113,7 @@ export const App: React.FC = () => {
     }
   };
 
+  // Combine fetched items with user-generated custom stories
   const allStories = useMemo(() => {
     const baseItems = newsData?.items || [];
     const customIds = new Set(customStories.map((s) => s.id));
@@ -129,11 +121,13 @@ export const App: React.FC = () => {
     return [...customStories, ...dedupedBase].map(sanitizeNewsItem);
   }, [newsData, customStories]);
 
+  // Active story lookup
   const currentActiveStory = useMemo(() => {
     if (!activeStoryId) return null;
     return allStories.find((s) => s.id === activeStoryId) || null;
   }, [allStories, activeStoryId]);
 
+  // Sync state from window.location.hash
   const handleHashChange = useCallback(() => {
     const rawHash = decodeURIComponent(window.location.hash.slice(1)).trim();
 
@@ -159,6 +153,7 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Check for Entertainment and Entertainment subpages
     if (rawHash.toLowerCase().startsWith('entertainment')) {
       setView('feed');
       setShowOnlyBookmarks(false);
@@ -175,13 +170,16 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Otherwise it's feed view
     setView('feed');
     setShowOnlyBookmarks(false);
 
     if (!rawHash || rawHash.toLowerCase() === 'all') {
       setCurrentCategory('All');
     } else {
-      const match = CATEGORIES.find((c) => c.toLowerCase() === rawHash.toLowerCase());
+      const match = CATEGORIES.find(
+        (c) => c.toLowerCase() === rawHash.toLowerCase()
+      );
       if (match) {
         setCurrentCategory(match);
       } else {
@@ -198,6 +196,7 @@ export const App: React.FC = () => {
     };
   }, [handleHashChange]);
 
+  // Track each page visit in real-time for comprehensive Admin analytics
   useEffect(() => {
     let pageName = 'Home Feed (All 10 Sectors)';
     let path = window.location.hash || '#all';
@@ -244,6 +243,7 @@ export const App: React.FC = () => {
     });
   }, [view, currentCategory, entertainmentSubpage, activeStoryId, showOnlyBookmarks, currentActiveStory]);
 
+  // Fetch latest data from /data/news.json & Firestore database
   const fetchNews = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -265,6 +265,7 @@ export const App: React.FC = () => {
       console.warn('Could not fetch dynamic news.json, using fallback data:', err);
     }
 
+    // Also fetch stories from Firestore database
     try {
       const storiesQuery = query(collection(db, 'stories'), limit(100));
       const querySnap = await getDocs(storiesQuery);
@@ -296,12 +297,14 @@ export const App: React.FC = () => {
     fetchNews();
   }, [fetchNews]);
 
+  // Bookmark toggle
   const handleToggleBookmark = (storyId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const isSaved = toggleBookmark(storyId);
     setBookmarks((prev) => (isSaved ? [...prev, storyId] : prev.filter((id) => id !== storyId)));
   };
 
+  // Internal Navigation Handlers
   const handleSelectEntertainmentSubpage = (sub: EntertainmentSubpage) => {
     setEntertainmentSubpage(sub);
     window.location.hash = sub === 'news' ? 'Entertainment' : `Entertainment/${sub}`;
@@ -313,10 +316,20 @@ export const App: React.FC = () => {
   };
 
   const handleOpenAiAssistant = () => {
+    if (!currentUser) {
+      setAuthPromptMessage('Please sign in to access the AI Assistant.');
+      setIsAuthOpen(true);
+      return;
+    }
     setIsAiChatOpen(true);
   };
 
   const handleOpenAiStudio = () => {
+    if (!currentUser) {
+      setAuthPromptMessage('Please sign in to access the AI Studio.');
+      setIsAuthOpen(true);
+      return;
+    }
     setIsAiStudioOpen(true);
   };
 
@@ -345,11 +358,13 @@ export const App: React.FC = () => {
     window.location.hash = currentCategory || 'All';
   };
 
+  // Sign in / Sign out handlers
   const handleAuthSuccess = (user: User) => {
     setCurrentUser(user);
     setAuthPromptMessage(undefined);
     setIsAuthOpen(false);
 
+    // If user clicked AI Assistant or AI Studio while unauthenticated, open it immediately
     if (pendingAiAction === 'chat') {
       setIsAiChatOpen(true);
       setPendingAiAction(null);
@@ -377,10 +392,12 @@ export const App: React.FC = () => {
     }
   };
 
+  // Newsletter subscribe helper
   const handleSubscribe = (email: string): boolean => {
     return addSubscriber(email, 'newsletter_box');
   };
 
+  // Admin Story operations
   const handleAddCustomStory = (story: NewsItem) => {
     setCustomStories((prev) => [story, ...prev]);
   };
