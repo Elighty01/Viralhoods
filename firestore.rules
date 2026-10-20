@@ -1,69 +1,62 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    function isSignedIn() {
+    function signedIn() {
       return request.auth != null;
     }
 
-    // Chief Administrator verification - Strictly tobionlyn@gmail.com only
-    function isChiefAdmin() {
-      return isSignedIn() && request.auth.token.email == 'tobionlyn@gmail.com';
-    }
-
-    // Administrator check - Exclusively the Chief Administrator
     function isAdmin() {
-      return isChiefAdmin();
+      return signedIn() && request.auth.token.admin == true;
     }
 
-    // Stories: Publicly readable; editable by editorial sessions
     match /stories/{storyId} {
       allow read: if true;
-      allow write: if true;
+      allow create, update, delete: if isAdmin();
     }
 
-    // System status & scraper bot execution metadata
     match /system/{docId} {
-      allow read, write: if true;
+      allow read: if signedIn();
+      allow write: if isAdmin();
     }
 
-    // Subscribers: Anyone can join the newsletter
     match /subscribers/{subscriberId} {
-      allow create, read, update, delete: if true;
+      allow create: if request.resource.data.email is string
+        && request.resource.data.email.matches('.*@.*\\..*')
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+      allow update, delete: if isAdmin();
     }
 
-    // Member Profiles
     match /members/{memberId} {
-      allow read, write: if true;
+      allow read: if signedIn() && request.auth.uid == memberId;
+      allow write: if isAdmin();
     }
 
-    // Registered Users Database (Drops all registrations and logins for Chief Admin access)
     match /registered_users/{userId} {
-      allow create, update: if true;
-      allow read: if true;
-      allow delete: if isChiefAdmin();
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update, delete: if isAdmin();
     }
 
-    // User Bookmarks
-    match /bookmarks/{bookmarkId} {
-      allow read, write: if true;
-    }
-
-    // AI Conversations
-    match /ai_conversations/{convId} {
-      allow read, write: if true;
-    }
-
-    // Appointed Administrators:
-    // Only the Chief Administrator has authority to appoint or revoke administrator credentials!
-    match /admins/{adminId} {
-      allow read: if true;
-      allow write: if true;
-    }
-
-    // Website Visitor Telemetry & Page Tracking:
     match /analytics_visits/{visitId} {
-      allow read, write: if true;
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /bookmarks/{bookmarkId} {
+      allow read: if signedIn() && request.auth.uid == resource.data.uid;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAdmin() || (signedIn() && request.auth.uid == resource.data.uid);
+    }
+
+    match /ai_conversations/{convId} {
+      allow read, update, delete: if isAdmin() || (signedIn() && request.auth.uid == resource.data.uid);
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    match /admins/{adminId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
     }
   }
 }
