@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, isChiefAdminEmail } from '../types';
 import {
   auth,
@@ -7,6 +7,9 @@ import {
   signInWithRedirect,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
   sendEmailVerification,
   sendPasswordResetEmail,
   updateProfile,
@@ -14,14 +17,26 @@ import {
   db,
 } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { X, Mail, CheckCircle, AlertCircle, UserPlus, LogIn, User as UserIcon, Sparkles, KeyRound } from 'lucide-react';
+import {
+  X,
+  Mail,
+  CheckCircle,
+  AlertCircle,
+  UserPlus,
+  LogIn,
+  User as UserIcon,
+  Sparkles,
+  KeyRound,
+  Link2,
+  Send,
+} from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: User) => void;
   initialPromptMessage?: string;
-  initialTab?: 'signin' | 'register' | 'forgot';
+  initialTab?: 'signin' | 'register' | 'emaillink' | 'forgot';
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -31,7 +46,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialPromptMessage,
   initialTab = 'signin',
 }) => {
-  const [tab, setTab] = useState<'signin' | 'register' | 'forgot'>(initialTab);
+  const [tab, setTab] = useState<'signin' | 'register' | 'emaillink' | 'forgot'>(initialTab);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -42,6 +57,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isError, setIsError] = useState(false);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEmailLinkPending, setIsEmailLinkPending] = useState(false);
+  const [isCompletingEmailLink, setIsCompletingEmailLink] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isSignInWithEmailLink(auth, window.location.href)) {
+      setTab('emaillink');
+      setIsCompletingEmailLink(true);
+      const savedEmail = window.localStorage.getItem('emailForSignIn');
+      if (savedEmail) {
+        setEmail(savedEmail);
+      }
+    }
+  }, []);
 
   if (!isOpen) return null;
 
@@ -162,6 +190,88 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsSubmitting(false);
   };
 
+  const handleSendEmailLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setIsError(false);
+    setStatusMessage(null);
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setIsError(true);
+      setStatusMessage('Please enter a valid email address.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const actionCodeSettings = {
+        // Construct returning URL for the current domain and path
+        url: window.location.origin + window.location.pathname + window.location.hash,
+        handleCodeInApp: true,
+      };
+
+      await sendSignInLinkToEmail(auth, cleanEmail, actionCodeSettings);
+      window.localStorage.setItem('emailForSignIn', cleanEmail);
+      setIsEmailLinkPending(true);
+      setIsError(false);
+      setStatusMessage(`Sign-in link sent to ${cleanEmail}! Check your inbox and click the link to sign in.`);
+    } catch (err: any) {
+      console.warn('Send email link error:', err);
+      setIsError(true);
+      if (err?.code === 'auth/unauthorized-domain') {
+        const domain = typeof window !== 'undefined' ? window.location.hostname : 'elighty01.github.io';
+        setStatusMessage(
+          `Domain not authorized: Please add "${domain}" to your Firebase Console under Authentication > Settings > Authorized domains.`
+        );
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        setStatusMessage(
+          'Email link sign-in is disabled in Firebase. Enable "Email link (passwordless sign-in)" under Authentication > Sign-in method in your Firebase Console.'
+        );
+      } else {
+        setStatusMessage(err?.message || 'Could not send sign-in link. Please try again.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCompleteEmailLinkSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setIsError(false);
+    setStatusMessage(null);
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setIsError(true);
+      setStatusMessage('Please enter the email address you received the link on.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const result = await signInWithEmailLink(auth, cleanEmail, window.location.href);
+      window.localStorage.removeItem('emailForSignIn');
+      try {
+        const url = new URL(window.location.href);
+        url.search = '';
+        window.history.replaceState({}, document.title, url.toString());
+      } catch {
+        /* ignore */
+      }
+      const fbUser = result.user;
+      const displayName = fbUser.displayName || cleanEmail.split('@')[0];
+      await finishSignIn(fbUser, displayName, 'email_link');
+    } catch (err: any) {
+      console.warn('Complete email link error:', err);
+      setIsError(true);
+      setStatusMessage(err?.message || 'Invalid or expired sign-in link. Please request a new link.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const friendlyAuthError = (err: any): string => {
     switch (err?.code) {
       case 'auth/email-already-in-use':
@@ -252,13 +362,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         <div className="modal-header">
           <div>
             <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: 0 }}>
-              {tab === 'signin' ? 'Sign In to Viralhoods' : tab === 'register' ? 'Create an Account' : 'Reset Your Password'}
+              {tab === 'signin'
+                ? 'Sign In to Viralhoods'
+                : tab === 'register'
+                ? 'Create an Account'
+                : tab === 'emaillink'
+                ? (isCompletingEmailLink ? 'Complete Passwordless Sign-In' : 'Sign In with Email Link')
+                : 'Reset Your Password'}
             </h3>
             <p style={{ margin: '4px 0 0', fontSize: '0.86rem', color: 'var(--fg-muted)' }}>
               {tab === 'signin'
                 ? 'Welcome back — sign in to bookmark stories and more.'
                 : tab === 'register'
                 ? 'Join Viralhoods with Google or your email address.'
+                : tab === 'emaillink'
+                ? (isCompletingEmailLink
+                    ? 'Confirm your email address below to finalize your sign-in.'
+                    : 'Password-free sign-in — we\u2019ll email you a secure magic link.')
                 : 'Enter your email and we\u2019ll send you a reset link.'}
             </p>
           </div>
@@ -288,7 +408,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         )}
 
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px', gap: '4px' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px', gap: '4px', overflowX: 'auto' }}>
           <button
             type="button"
             onClick={() => {
@@ -297,7 +417,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }}
             style={{
               flex: 1,
-              padding: '10px 8px',
+              padding: '10px 6px',
               border: 'none',
               background: 'transparent',
               borderBottom: tab === 'signin' ? '2px solid var(--blue)' : '2px solid transparent',
@@ -308,10 +428,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
-              fontSize: '0.88rem',
+              fontSize: '0.86rem',
+              whiteSpace: 'nowrap',
             }}
           >
-            <LogIn size={15} /> Sign In
+            <LogIn size={15} /> Password
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setTab('emaillink');
+              setStatusMessage(null);
+            }}
+            style={{
+              flex: 1,
+              padding: '10px 6px',
+              border: 'none',
+              background: 'transparent',
+              borderBottom: tab === 'emaillink' ? '2px solid var(--blue)' : '2px solid transparent',
+              color: tab === 'emaillink' ? 'var(--fg)' : 'var(--fg-muted)',
+              fontWeight: tab === 'emaillink' ? 800 : 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              fontSize: '0.86rem',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Link2 size={15} /> Email Link
           </button>
 
           <button
@@ -322,7 +469,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }}
             style={{
               flex: 1,
-              padding: '10px 8px',
+              padding: '10px 6px',
               border: 'none',
               background: 'transparent',
               borderBottom: tab === 'register' ? '2px solid var(--blue)' : '2px solid transparent',
@@ -333,36 +480,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
-              fontSize: '0.88rem',
+              fontSize: '0.86rem',
+              whiteSpace: 'nowrap',
             }}
           >
             <UserPlus size={15} /> Register
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setTab('forgot');
-              setStatusMessage(null);
-            }}
-            style={{
-              flex: 1,
-              padding: '10px 8px',
-              border: 'none',
-              background: 'transparent',
-              borderBottom: tab === 'forgot' ? '2px solid var(--blue)' : '2px solid transparent',
-              color: tab === 'forgot' ? 'var(--fg)' : 'var(--fg-muted)',
-              fontWeight: tab === 'forgot' ? 800 : 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              fontSize: '0.88rem',
-            }}
-          >
-            <KeyRound size={15} /> Forgot Password
-          </button>
+          {tab === 'forgot' && (
+            <button
+              type="button"
+              style={{
+                flex: 1,
+                padding: '10px 6px',
+                border: 'none',
+                background: 'transparent',
+                borderBottom: '2px solid var(--blue)',
+                color: 'var(--fg)',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
+                fontSize: '0.86rem',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <KeyRound size={15} /> Reset
+            </button>
+          )}
         </div>
 
         {tab !== 'forgot' && (
@@ -399,7 +546,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0 16px', color: 'var(--fg-muted)', fontSize: '0.8rem' }}>
               <div style={{ flex: 1, height: '1px', background: 'var(--line)' }} />
-              <span>OR USE EMAIL</span>
+              <span>{tab === 'emaillink' ? 'OR USE PASSWORDLESS LINK' : 'OR USE EMAIL'}</span>
               <div style={{ flex: 1, height: '1px', background: 'var(--line)' }} />
             </div>
           </>
@@ -457,6 +604,115 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               style={{ width: '100%', padding: '12px', fontSize: '0.96rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               {isSubmitting ? 'Sending...' : (<><Mail size={16} /> Send Reset Link</>)}
+            </button>
+          </form>
+        ) : tab === 'emaillink' ? (
+          <form onSubmit={isCompletingEmailLink ? handleCompleteEmailLinkSignIn : handleSendEmailLink}>
+            <div
+              style={{
+                marginBottom: '14px',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                padding: '12px 14px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: 'var(--blue)',
+                  fontWeight: 700,
+                  fontSize: '0.88rem',
+                  marginBottom: '4px',
+                }}
+              >
+                <Link2 size={16} /> {isCompletingEmailLink ? 'Complete Passwordless Sign-In' : 'Passwordless Sign-In'}
+              </div>
+              <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--fg-muted)', lineHeight: 1.45 }}>
+                {isCompletingEmailLink
+                  ? 'Confirm your email address to complete authentication from your sign-in link.'
+                  : 'Enter your email and we\u2019ll send you a magic sign-in link. No password required.'}
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="auth-emaillink-input">Email Address</label>
+              <div style={{ position: 'relative' }}>
+                <UserIcon
+                  size={15}
+                  style={{
+                    position: 'absolute',
+                    left: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: 'var(--fg-muted)',
+                  }}
+                />
+                <input
+                  id="auth-emaillink-input"
+                  type="email"
+                  className="form-input"
+                  style={{ paddingLeft: '34px' }}
+                  placeholder="name@example.com"
+                  required
+                  value={email}
+                  onChange={(ev) => setEmail(ev.target.value)}
+                />
+              </div>
+            </div>
+
+            {statusMessage && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  marginBottom: '16px',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: isError ? '#fee2e2' : 'var(--blue-tint)',
+                  color: isError ? '#b91c1c' : 'var(--blue)',
+                  lineHeight: 1.4,
+                }}
+              >
+                {isError ? <AlertCircle size={18} style={{ flexShrink: 0 }} /> : <CheckCircle size={18} style={{ flexShrink: 0 }} />}
+                <div>{statusMessage}</div>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={isSubmitting}
+              style={{
+                width: '100%',
+                padding: '12px',
+                fontSize: '0.96rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              {isSubmitting ? (
+                'Processing...'
+              ) : isCompletingEmailLink ? (
+                <>
+                  <CheckCircle size={16} /> Complete Sign-In
+                </>
+              ) : isEmailLinkPending ? (
+                <>
+                  <Send size={16} /> Resend Sign-In Link
+                </>
+              ) : (
+                <>
+                  <Send size={16} /> Send Sign-In Link
+                </>
+              )}
             </button>
           </form>
         ) : (
@@ -573,12 +829,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <button type="button" onClick={() => { setTab('register'); setStatusMessage(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
                 Create one
               </button>
+              {' · '}
+              <button type="button" onClick={() => { setTab('emaillink'); setStatusMessage(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                Sign in with link
+              </button>
             </span>
           ) : tab === 'register' ? (
             <span>
               Already registered?{' '}
               <button type="button" onClick={() => { setTab('signin'); setStatusMessage(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
                 Sign in here
+              </button>
+              {' · '}
+              <button type="button" onClick={() => { setTab('emaillink'); setStatusMessage(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                Email link
+              </button>
+            </span>
+          ) : tab === 'emaillink' ? (
+            <span>
+              Prefer password?{' '}
+              <button type="button" onClick={() => { setTab('signin'); setStatusMessage(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                Sign in with password
+              </button>
+              {' · '}
+              <button type="button" onClick={() => { setTab('register'); setStatusMessage(null); }} style={{ background: 'none', border: 'none', color: 'var(--blue)', fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                Create account
               </button>
             </span>
           ) : (

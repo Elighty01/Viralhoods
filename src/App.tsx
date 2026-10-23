@@ -22,7 +22,15 @@ const UsernameSetupModal = lazy(() => import('./components/UsernameSetupModal').
 import { NewsData, NewsItem, CATEGORIES, User, CommunityPost } from './types';
 import { LogOut, X } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
-import { auth, onAuthStateChanged, fbSignOut, db, refreshAdminStatus } from './firebase';
+import {
+  auth,
+  onAuthStateChanged,
+  fbSignOut,
+  db,
+  refreshAdminStatus,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+} from './firebase';
 import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
 import {
   getBookmarks,
@@ -98,6 +106,32 @@ export const App: React.FC = () => {
         setCurrentUser(null);
       }
     });
+
+    // Check for returning email magic link
+    if (typeof window !== 'undefined' && isSignInWithEmailLink(auth, window.location.href)) {
+      const emailForSignIn = window.localStorage.getItem('emailForSignIn');
+      if (emailForSignIn) {
+        signInWithEmailLink(auth, emailForSignIn, window.location.href)
+          .then(() => {
+            window.localStorage.removeItem('emailForSignIn');
+            try {
+              const url = new URL(window.location.href);
+              url.search = '';
+              window.history.replaceState({}, document.title, url.toString());
+            } catch {
+              /* ignore */
+            }
+          })
+          .catch((err) => {
+            console.warn('Auto email link sign in note:', err);
+            setAuthPromptMessage('Please confirm your email address to complete passwordless sign-in.');
+            setIsAuthOpen(true);
+          });
+      } else {
+        setAuthPromptMessage('Please confirm your email address to complete passwordless sign-in.');
+        setIsAuthOpen(true);
+      }
+    }
 
     // 2. Bookmarks
     setBookmarks(getBookmarks());

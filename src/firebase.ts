@@ -10,6 +10,9 @@ import {
   sendPasswordResetEmail,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
   sendEmailVerification,
   updateProfile,
   User as FirebaseUser,
@@ -165,6 +168,9 @@ export {
 export {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
   sendEmailVerification,
   updateProfile,
 };
