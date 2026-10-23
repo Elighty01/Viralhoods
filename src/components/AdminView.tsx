@@ -560,11 +560,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // 4 Entertainment Hub sub-pages. Admin-gated server-side, so no GitHub
   // token is needed for this (see the "Advanced" GitHub dispatch option
   // below for the separate Pages *deploy* workflow).
-  const handleRunScraperNow = async (specificCategory?: Category) => {
+  const handleRunScraperNow = async (_specificCategory?: Category) => {
     setIsScrapingNow(true);
     setScrapeSuccessMessage(null);
     setScrapeErrorMessage(null);
 
+    // 1. Try local/fullstack Express scraper endpoint first
+    try {
+      const resp = await fetch('/api/scraper/trigger', { method: 'POST' });
+      if (resp.ok) {
+        const data = await resp.json();
+        const count = data?.count ?? 0;
+        const pruned = data?.pruned ?? 0;
+        setScrapeSuccessMessage(
+          `Scrape complete: ${count} ${count === 1 ? 'story' : 'stories'} added or refreshed across all 10 sectors + 4 Entertainment sub-pages` +
+            (pruned > 0 ? `, ${pruned} stale/duplicate ${pruned === 1 ? 'story' : 'stories'} cleaned up.` : '.')
+        );
+        await onRefreshData();
+        await fetchBotDiagnostics();
+        setIsScrapingNow(false);
+        return;
+      }
+    } catch {
+      // Server endpoint not reachable (e.g. running on static GitHub Pages), fall through to Firebase Cloud Functions
+    }
+
+    // 2. Fall back to Firebase Cloud Function if deployed
     try {
       const triggerScrape = httpsCallable(functions, 'triggerNewsScrapeOnDemand');
       const res: any = await triggerScrape();
@@ -583,7 +604,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           ? 'Only an administrator can trigger a manual scrape.'
           : err?.code === 'functions/failed-precondition'
           ? 'The scraper is not fully configured yet (missing GEMINI_API_KEY on the Cloud Function). It will still run with offline paraphrasing.'
-          : 'Could not reach the scraper function. It may still be deploying, or GEMINI_API_KEY may not be set — check the Firebase console.'
+          : 'Could not reach scraper function. On GitHub Pages, use the "Dispatch GitHub Scraper Workflow" button below or run "npm run scrape" locally.'
       );
     } finally {
       setIsScrapingNow(false);

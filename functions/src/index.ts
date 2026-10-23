@@ -265,8 +265,8 @@ Output MUST be valid JSON in exactly this shape, with no markdown fences:
           whatNext: parsed.whatNext || 'Subsequent updates are anticipated over the coming days.',
         };
       }
-    } catch (err) {
-      logger.warn('Gemini paraphrasing fallback triggered:', err as any);
+    } catch (err: any) {
+      logger.warn('Gemini paraphrasing fallback triggered. Using editorial template paraphraser:', err?.message || 'Gemini unavailable');
     }
   }
   return templateFallback(originalTitle, summary, category);

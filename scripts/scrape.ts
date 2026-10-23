@@ -251,6 +251,9 @@ function templateFallback(originalTitle: string, summary: string, category: BotC
   };
 }
 
+let geminiAvailable = true;
+let geminiWarningLogged = false;
+
 async function paraphraseWithGemini(
   originalTitle: string,
   summary: string,
@@ -258,7 +261,7 @@ async function paraphraseWithGemini(
   aiClient: GoogleGenAI | null,
   model: string
 ): Promise<Paraphrased> {
-  if (aiClient) {
+  if (aiClient && geminiAvailable) {
     try {
       const prompt = `You are a news editor at Viralhoods, a trending-news summary service.
 Given this original headline and summary from the "${category}" sector:
@@ -292,7 +295,24 @@ Output MUST be valid JSON in exactly this shape, with no markdown fences:
         };
       }
     } catch (feedErr: any) {
-      console.warn('[WARN] Gemini paraphrasing fallback triggered:', feedErr?.message || feedErr);
+      const errMsg = feedErr?.message || String(feedErr);
+      const isAuthOrQuota =
+        errMsg.includes('API key not valid') ||
+        errMsg.includes('API_KEY_INVALID') ||
+        errMsg.includes('UNAUTHENTICATED') ||
+        errMsg.includes('RESOURCE_EXHAUSTED') ||
+        errMsg.includes('quota');
+
+      if (isAuthOrQuota) {
+        geminiAvailable = false;
+        if (!geminiWarningLogged) {
+          geminiWarningLogged = true;
+          console.warn('[NOTICE] Gemini API key is not valid or quota exceeded. Switching smoothly to editorial template paraphraser for remaining items.');
+        }
+      } else if (!geminiWarningLogged) {
+        geminiWarningLogged = true;
+        console.warn('[NOTICE] Gemini paraphrasing fallback triggered. Using editorial template paraphraser.');
+      }
     }
   }
   return templateFallback(originalTitle, summary, category);
@@ -388,14 +408,26 @@ function dedupeAndPrune(items: any[]): any[] {
   return kept;
 }
 
-async function run() {
+export async function runScraper() {
   console.log('Running automated news scrape across all 10 sectors + 4 Entertainment sub-pages...');
+
+  geminiAvailable = true;
+  geminiWarningLogged = false;
 
   const apiKey = process.env.GEMINI_API_KEY || '';
   const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-  const aiClient = apiKey ? new GoogleGenAI({ apiKey }) : null;
+  const aiClient = apiKey
+    ? new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      })
+    : null;
   if (!aiClient) {
-    console.warn('[WARN] No GEMINI_API_KEY set — falling back to the offline template paraphraser for this run.');
+    console.log('[INFO] No GEMINI_API_KEY configured — using editorial template paraphrasing for this run.');
   }
 
   // Load existing catalog so we can dedupe against it, not just within this run.
@@ -464,9 +496,23 @@ async function run() {
     `Scraper completed: ${scrapedNewItems.length} items scraped this run, ${removedCount} duplicate/stale items removed, ` +
       `catalog now ${finalItems.length} stories across 10 sectors + 4 Entertainment sub-pages.`
   );
+
+  return {
+    count: scrapedNewItems.length,
+    pruned: removedCount,
+    total: finalItems.length,
+    items: finalItems,
+  };
 }
 
-run().catch((err) => {
-  console.error('Scraper run failed:', err);
-  process.exitCode = 1;
-});
+const isDirectRun = process.argv[1] && (
+  process.argv[1].endsWith('scrape.ts') || 
+  process.argv[1].endsWith('scrape.js')
+);
+
+if (isDirectRun) {
+  runScraper().catch((err) => {
+    console.error('Scraper run failed:', err);
+    process.exitCode = 1;
+  });
+}

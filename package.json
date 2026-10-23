@@ -8,6 +8,7 @@
     "build": "tsc && vite build && cp -r dist/assets . && mkdir -p docs && cp -r dist/* docs/ && cp public/logo.svg . && cp public/logo-horizontal.svg .",
     "lint": "tsc --noEmit",
     "start": "tsx server.ts",
+    "scrape": "tsx scripts/scrape.ts",
     "preview": "vite preview --port 3000"
   },
   "dependencies": {

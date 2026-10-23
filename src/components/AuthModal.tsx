@@ -176,6 +176,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return 'Incorrect email or password.';
       case 'auth/too-many-requests':
         return 'Too many attempts — please wait a moment and try again.';
+      case 'auth/operation-not-allowed':
+        return 'Email/Password accounts are currently disabled in Firebase. Enable the Email/Password provider in the Firebase Console (Authentication > Sign-in method), or sign in with Google above.';
       default:
         return err?.message || 'Something went wrong. Please try again.';
     }

@@ -22,6 +22,7 @@ import {
   verifyAccount,
   sendNewsletterDigest,
 } from './server/auth';
+import { runScraper } from './scripts/scrape';
 
 dotenv.config();
 
@@ -142,6 +143,21 @@ app.post('/api/newsletter/send', async (req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.post('/api/scraper/trigger', async (_req, res) => {
+  try {
+    const result = await runScraper();
+    return res.json({
+      ok: true,
+      count: result.count,
+      pruned: result.pruned,
+      total: result.total,
+    });
+  } catch (err: any) {
+    console.error('Scraper trigger error:', err);
+    return res.status(500).json({ error: err.message || 'Scraper failed' });
+  }
 });
 
 const port = Number(process.env.PORT || 3000);
