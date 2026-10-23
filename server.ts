@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------
+// OPTIONAL standalone API server — NOT part of the default deployment.
+//
+// Viralhoods is deployed as a static site (GitHub Pages) backed by Firebase
+// (Auth, Firestore, and the Cloud Functions in functions/src/index.ts). That
+// combination needs no server to stay running, which is what GitHub Pages
+// hosting requires. This file is a real, working Express + bcrypt + JWT
+// backend, but nothing in the deployed frontend calls it — the app uses
+// Firebase Auth directly instead (see src/firebase.ts, src/components/
+// AuthModal.tsx). Run this only if you choose to self-host it separately
+// (e.g. on Render/Railway/Fly/a VPS) and update the frontend to call it.
+// -----------------------------------------------------------------------
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';

@@ -24,7 +24,10 @@ service cloud.firestore {
         && request.resource.data.email.matches('.*@.*\\..*')
         && request.resource.data.uid == request.auth.uid;
       allow read: if isAdmin();
-      allow update, delete: if isAdmin();
+      // A signed-in user may update/delete their OWN subscriber record
+      // (subscriberId is their uid) — e.g. the lastLogin-style sync that
+      // runs on every sign-in — in addition to admins managing any record.
+      allow update, delete: if isAdmin() || (signedIn() && request.auth.uid == subscriberId);
     }
 
     match /members/{memberId} {
@@ -35,7 +38,10 @@ service cloud.firestore {
     match /registered_users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn() && request.auth.uid == userId;
-      allow update, delete: if isAdmin();
+      // A signed-in user may update their OWN record (e.g. lastLogin,
+      // loginCount on repeat sign-ins) in addition to admin management.
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow delete: if isAdmin();
     }
 
     match /analytics_visits/{visitId} {
@@ -57,6 +63,49 @@ service cloud.firestore {
     match /admins/{adminId} {
       allow read: if isAdmin();
       allow write: if isAdmin();
+    }
+
+    // --- Community (user-posted blog/board) -------------------------------
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.type in ['text', 'image', 'video', 'link'];
+      // The author can edit their own post's content; ANY signed-in user can
+      // update a post but ONLY to toggle their own like (so liking someone
+      // else's post doesn't require giving them edit rights to its content);
+      // admins can do either.
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.authorUid == request.auth.uid)
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'likedBy']));
+      allow delete: if isAdmin() || (signedIn() && resource.data.authorUid == request.auth.uid);
+    }
+
+    // Public profile info (username, display name, bio) — separate from
+    // `registered_users` above, which is private account/login bookkeeping.
+    match /profiles/{uid} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if isAdmin();
+    }
+
+    // One doc per claimed username (lowercased), used purely to enforce
+    // uniqueness — see utils/community.ts `claimUsername`, which creates
+    // this and the matching /profiles/{uid} doc together in one transaction.
+    // Immutable once created so usernames can't be reassigned/stolen.
+    match /usernames/{usernameLower} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn() && request.resource.data.reportedBy == request.auth.uid;
+      allow read, update, delete: if isAdmin();
     }
   }
 }
