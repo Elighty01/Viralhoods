@@ -4,6 +4,7 @@ import {
   auth,
   googleProvider,
   signInWithPopup,
+  signInWithRedirect,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
@@ -100,11 +101,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (err: any) {
       console.warn('Google sign in note:', err);
       setIsError(true);
-      setStatusMessage(
-        err?.code === 'auth/popup-closed-by-user'
-          ? 'Sign in window closed. You can also sign in with email and password below.'
-          : 'Google sign-in is unavailable right now. Please use email & password below.'
-      );
+      if (err?.code === 'auth/unauthorized-domain') {
+        const domain = typeof window !== 'undefined' ? window.location.hostname : 'elighty01.github.io';
+        setStatusMessage(
+          `Domain not authorized: Please add "${domain}" to your Firebase Console under Authentication > Settings > Authorized domains.`
+        );
+      } else if (err?.code === 'auth/operation-not-allowed') {
+        setStatusMessage(
+          'Google sign-in is not enabled. In your Firebase Console, go to Authentication > Sign-in method and enable Google.'
+        );
+      } else if (err?.code === 'auth/popup-blocked') {
+        try {
+          setStatusMessage('Popup was blocked by your browser. Redirecting to Google Sign-In...');
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          setStatusMessage('Popup blocked. Please allow popups for this site or use email & password below.');
+        }
+      } else if (err?.code === 'auth/popup-closed-by-user') {
+        setStatusMessage('Sign-in window was closed. You can try again or use email & password below.');
+      } else {
+        setStatusMessage(
+          err?.message || 'Google sign-in is unavailable right now. Please use email & password below.'
+        );
+      }
     } finally {
       setIsLoadingGoogle(false);
     }

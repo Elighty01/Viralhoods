@@ -3,6 +3,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut as fbSignOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
@@ -151,7 +153,15 @@ export async function refreshAdminStatus(fbUser: FirebaseUser): Promise<boolean>
   }
 }
 
-export { fbSignOut, signInWithPopup, onAuthStateChanged, sendPasswordResetEmail, httpsCallable };
+export {
+  fbSignOut,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  httpsCallable,
+};
 export {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
