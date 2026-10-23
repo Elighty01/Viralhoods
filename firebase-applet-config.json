@@ -1,12 +1,12 @@
 {
-  "projectId": "warm-victor-1vr20",
-  "appId": "1:143598964078:web:beb6f887b7d4595b24457f",
-  "apiKey": "AIzaSyCkvRGsLEGeTnDXD3RVe6Bk1RJosTPRPLY",
-  "authDomain": "warm-victor-1vr20.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-viralhoods-8224c7d5-8155-4641-921a-175b19a58307",
-  "storageBucket": "warm-victor-1vr20.firebasestorage.app",
-  "messagingSenderId": "143598964078",
-  "measurementId": "",
-  "oAuthClientId": "143598964078-g7k5ih2khnpc5r1fr4uouq1tu74m3a3v.apps.googleusercontent.com",
+  "projectId": "viralhoods2026",
+  "appId": "1:151251990541:web:c512e575117d02418bbd44",
+  "apiKey": "AIzaSyBzfvin0bnuUnSflpRIUjCOvYA7uVPBOsA",
+  "authDomain": "viralhoods2026.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-viralhoods-ee67cf6a-c31b-45be-a498-8d82049f7742",
+  "storageBucket": "viralhoods2026.firebasestorage.app",
+  "messagingSenderId": "151251990541",
+  "measurementId": "G-9YC1LYQ4GW",
+  "oAuthClientId": "151251990541-akfn591m6rtgh7576lf9b3k3g0oali6m.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

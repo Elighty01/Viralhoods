@@ -4,25 +4,35 @@ import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
 import nodemailer from 'nodemailer';
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.applicationDefault(),
-  });
+let db: admin.firestore.Firestore | null = null;
+
+try {
+  if (!admin.apps.length) {
+    try {
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+      });
+    } catch {
+      admin.initializeApp();
+    }
+  }
+  db = admin.firestore();
+} catch (err: any) {
+  console.warn('[Server] Note: Firebase Admin initialization deferred:', err?.message || err);
 }
 
-const db = admin.firestore();
-
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
+  host: process.env.SMTP_HOST || 'localhost',
   port: Number(process.env.SMTP_PORT || 587),
   secure: false,
-  auth: {
+  auth: process.env.SMTP_USER ? {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
-  },
+  } : undefined,
 });
 
 export async function createAccount(email: string, password: string) {
+  if (!db) throw new Error('Database connection not available');
   const normalizedEmail = email.trim().toLowerCase();
 
   const existing = await db.collection('registered_users').doc(normalizedEmail).get();
@@ -56,6 +66,7 @@ export async function createAccount(email: string, password: string) {
 }
 
 export async function verifyAccount(email: string, token: string) {
+  if (!db) throw new Error('Database connection not available');
   const normalizedEmail = email.trim().toLowerCase();
   const snap = await db.collection('registered_users').doc(normalizedEmail).get();
   if (!snap.exists) throw new Error('Account not found');
@@ -75,6 +86,7 @@ export async function verifyAccount(email: string, token: string) {
 }
 
 export async function loginAccount(email: string, password: string) {
+  if (!db) throw new Error('Database connection not available');
   const normalizedEmail = email.trim().toLowerCase();
   const snap = await db.collection('registered_users').doc(normalizedEmail).get();
   if (!snap.exists) throw new Error('Invalid credentials');
@@ -101,6 +113,7 @@ export async function loginAccount(email: string, password: string) {
 }
 
 export async function sendNewsletterDigest() {
+  if (!db) throw new Error('Database connection not available');
   const stories = await db.collection('stories').orderBy('publishedAt', 'desc').limit(10).get();
 
   const items = stories.docs.map(doc => doc.data());

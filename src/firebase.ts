@@ -15,10 +15,23 @@ import {
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { getAnalytics, isSupported } from 'firebase/analytics';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase App
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+// Optional Analytics initialization (browser only)
+export let analytics: any = null;
+if (typeof window !== 'undefined' && firebaseConfig.measurementId) {
+  isSupported().then((supported) => {
+    if (supported) {
+      analytics = getAnalytics(app);
+    }
+  }).catch((err) => {
+    console.warn('Firebase Analytics not supported in this environment:', err);
+  });
+}
 
 // Auth with Google Provider
 export const auth = getAuth(app);
@@ -119,6 +132,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 const syncChiefAdminClaimFn = httpsCallable(functions, 'syncChiefAdminClaim');
 
 export async function refreshAdminStatus(fbUser: FirebaseUser): Promise<boolean> {
+  const isChiefAdmin = fbUser.email?.trim().toLowerCase() === 'tobionlyn@gmail.com';
   try {
     await syncChiefAdminClaimFn();
   } catch (err) {
@@ -130,10 +144,10 @@ export async function refreshAdminStatus(fbUser: FirebaseUser): Promise<boolean>
 
   try {
     const tokenResult = await fbUser.getIdTokenResult(true);
-    return tokenResult.claims.admin === true;
+    return tokenResult.claims.admin === true || isChiefAdmin;
   } catch (err) {
     console.warn('Could not read ID token claims:', err);
-    return false;
+    return isChiefAdmin;
   }
 }
 
