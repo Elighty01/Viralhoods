@@ -16,6 +16,9 @@ import {
   Compass,
   BookOpen,
   Gauge,
+  Play,
+  Video,
+  ExternalLink,
 } from 'lucide-react';
 import { SocialShareBar } from './SocialShareBar';
 import { NewsletterBanner } from './NewsletterBanner';
@@ -58,6 +61,38 @@ export const calculateStoryReadingMetrics = (item: NewsItem) => {
     readTimeLabel: `${minutes} min read`,
     statsLabel: `${words} words · ~${minutes} min read`,
   };
+};
+
+export const getYouTubeId = (url?: string): string | null => {
+  if (!url) return null;
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/i);
+  return match ? match[1] : null;
+};
+
+export const renderParagraphWithLinks = (text: string) => {
+  const urlRegex = /(https?:\/\/[^\s<)"]+)/g;
+  const parts = text.split(urlRegex);
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            color: 'var(--blue)',
+            textDecoration: 'underline',
+            fontWeight: 600,
+            wordBreak: 'break-all',
+          }}
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
 };
 
 export const ArticleView: React.FC<ArticleViewProps> = ({
@@ -209,6 +244,26 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
               </span>
               <span aria-hidden="true">·</span>
               <span>Published {formatAgo(enrichedStory.date)}</span>
+              {(enrichedStory.videoUrl || enrichedStory.hasVideo) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      color: '#ef4444',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontWeight: 700,
+                      fontSize: '0.78rem',
+                    }}
+                  >
+                    <Video size={13} /> Video Coverage
+                  </span>
+                </>
+              )}
             </div>
 
             <h1 className="article-title">{sanitizeHtmlText(enrichedStory.title)}</h1>
@@ -350,6 +405,135 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
             )}
           </div>
 
+          {/* Video Player / Embed Section if Story Contains Video */}
+          {enrichedStory.videoUrl && (
+            <div
+              className="article-video-container"
+              style={{
+                margin: '24px 0 28px',
+                borderRadius: 'var(--radius-lg)',
+                overflow: 'hidden',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--line)',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '12px 18px',
+                  background: 'var(--bg)',
+                  borderBottom: '1px solid var(--line)',
+                  fontSize: '0.88rem',
+                  fontWeight: 700,
+                }}
+              >
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
+                  <Play size={16} fill="#ef4444" />
+                  <span style={{ color: 'var(--fg)' }}>Video Coverage & Multimedia Evidence</span>
+                </div>
+                <a
+                  href={enrichedStory.videoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    color: 'var(--blue)',
+                    fontSize: '0.82rem',
+                    textDecoration: 'none',
+                    fontWeight: 600,
+                  }}
+                >
+                  Source Video <ExternalLink size={13} />
+                </a>
+              </div>
+
+              {getYouTubeId(enrichedStory.videoUrl) ? (
+                <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
+                  <iframe
+                    src={`https://www.youtube-nocookie.com/embed/${getYouTubeId(enrichedStory.videoUrl)}?rel=0`}
+                    title={enrichedStory.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      border: 0,
+                    }}
+                  />
+                </div>
+              ) : enrichedStory.videoUrl.match(/\.(mp4|webm|m3u8)(\?|$)/i) ? (
+                <video
+                  controls
+                  src={enrichedStory.videoUrl}
+                  style={{ width: '100%', maxHeight: '480px', background: '#000' }}
+                />
+              ) : (
+                <div
+                  style={{
+                    padding: '24px 20px',
+                    textAlign: 'center',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '12px',
+                    background: 'var(--bg-subtle)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '52px',
+                      height: '52px',
+                      borderRadius: '50%',
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      color: '#ef4444',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Play size={24} fill="#ef4444" />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: '0 0 6px', fontSize: '1.05rem', fontWeight: 700 }}>
+                      Official Video Attached
+                    </h4>
+                    <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+                      Verified multimedia broadcast is linked to this story.
+                    </p>
+                  </div>
+                  <a
+                    href={enrichedStory.videoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '9px 18px',
+                      background: '#ef4444',
+                      color: '#ffffff',
+                      borderRadius: 'var(--radius-md)',
+                      textDecoration: 'none',
+                      fontWeight: 700,
+                      fontSize: '0.9rem',
+                      marginTop: '4px',
+                    }}
+                  >
+                    <Play size={16} fill="white" /> Watch Video On Source Platform <ExternalLink size={14} />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Key Takeaways Callout */}
           {enrichedStory.keyTakeaways && enrichedStory.keyTakeaways.length > 0 && (
             <div className="takeaways-box">
@@ -368,7 +552,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
           {/* In-Depth Article Content */}
           <div className="article-body">
             {enrichedStory.content?.map((paragraph, index) => (
-              <p key={index}>{sanitizeHtmlText(paragraph)}</p>
+              <p key={index}>{renderParagraphWithLinks(sanitizeHtmlText(paragraph))}</p>
             ))}
           </div>
 

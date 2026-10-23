@@ -7,6 +7,9 @@ export interface NewsItem {
   source?: string;
   url?: string;
   image?: string;
+  videoUrl?: string;
+  videoEmbedUrl?: string;
+  hasVideo?: boolean;
   date: string;
   author?: string;
   readTime?: string;

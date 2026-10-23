@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { NewsItem, CATEGORIES } from '../types';
-import { Bookmark, ArrowRight, Clock } from 'lucide-react';
+import { Bookmark, ArrowRight, Clock, Play } from 'lucide-react';
 import { sanitizeHtmlText } from '../utils/sanitize';
 
 interface NewsCardProps {
@@ -141,6 +141,23 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
             <Clock size={12} /> {readTime}
           </span>
+          {(item.videoUrl || item.hasVideo || (item.url && item.url.includes('youtube'))) && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  color: '#ef4444',
+                  fontWeight: 700,
+                  fontSize: '0.74rem',
+                }}
+              >
+                <Play size={10} fill="#ef4444" /> Video
+              </span>
+            </>
+          )}
         </div>
 
         {lead ? <h2>{sanitizeHtmlText(item.title)}</h2> : <h3>{sanitizeHtmlText(item.title)}</h3>}
