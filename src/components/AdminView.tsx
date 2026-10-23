@@ -14,6 +14,8 @@ import {
 } from '../types';
 import {
   getSubscribers,
+  fetchSubscribersFromFirestore,
+  deleteSubscriberFromFirestore,
   saveCustomStory,
   deleteCustomStory,
   getChiefAdminStealthMode,
@@ -69,6 +71,7 @@ import {
   Check,
   HardDrive,
   Flag,
+  Mail,
 } from 'lucide-react';
 import {
   fetchAnalyticsData,
@@ -299,7 +302,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
   useEffect(() => {
     loadAnalytics();
     if (isAuthorized) {
-      fetchRegisteredMembers();
+      if (activeTab === 'users') {
+        fetchRegisteredMembers();
+      } else if (activeTab === 'subscribers') {
+        fetchSubscribers();
+      }
     }
   }, [activeTab, isAuthorized]);
 
@@ -325,9 +332,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // Stories Management State
   const [storySearch, setStorySearch] = useState('');
 
-  // Subscribers State
+  // Subscribers State & Cloud Database integration
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [subscriberSearch, setSubscriberSearch] = useState('');
+  const [isLoadingSubscribers, setIsLoadingSubscribers] = useState(false);
+  const [subscriberFilter, setSubscriberFilter] = useState<'all' | 'newsletter_box' | 'registration' | 'google_auth'>('all');
+  const [hasCopiedSubscribers, setHasCopiedSubscribers] = useState(false);
+  const [subscriberActionMsg, setSubscriberActionMsg] = useState<{ text: string; isError?: boolean } | null>(null);
+
+  const fetchSubscribers = async () => {
+    setIsLoadingSubscribers(true);
+    try {
+      const list = await fetchSubscribersFromFirestore();
+      setSubscribers(list);
+    } catch (err: any) {
+      console.warn('Error fetching subscribers from Firestore:', err);
+      setSubscribers(getSubscribers());
+    } finally {
+      setIsLoadingSubscribers(false);
+    }
+  };
 
   // GitHub Actions Workflow Dispatcher State
   const [repoInput, setRepoInput] = useState('');
@@ -413,7 +437,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   useEffect(() => {
     if (isAuthorized) {
-      setSubscribers(getSubscribers());
+      fetchSubscribers();
       fetchAdminRoster();
       fetchCommunityReports();
       try {
@@ -660,21 +684,72 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }, 4500);
   };
 
-  // Handle Export Subscribers to CSV
-  const handleExportCSV = () => {
-    if (subscribers.length === 0) return;
-    const header = 'Email,SubscribedAt,Source\n';
-    const rows = subscribers
-      .map((s) => `"${s.email}","${s.subscribedAt}","${s.source}"`)
-      .join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `viralhoods-subscribers-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  // Handle Export Subscribers to Google Drive CSV
+  const handleExportSubscribersDriveCsv = () => {
+    if (subscribers.length === 0) {
+      setSubscriberActionMsg({ text: 'No subscribers to export yet.', isError: true });
+      return;
+    }
+    try {
+      const header = 'Subscriber_Email,Enrolled_At,Source_Channel,User_ID\n';
+      const rows = subscribers
+        .map((s) => `"${s.email}","${s.subscribedAt}","${s.source}","${s.uid || ''}"`)
+        .join('\n');
+      const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `viralhoods-subscribers-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setSubscriberActionMsg({ text: '✓ Subscriber CSV exported! Ready for Google Drive or Google Sheets.' });
+      setTimeout(() => setSubscriberActionMsg(null), 5000);
+    } catch (err: any) {
+      setSubscriberActionMsg({ text: 'Export error: ' + err.message, isError: true });
+    }
   };
+
+  // Copy Tabular Subscribers for Google Sheets
+  const handleCopySubscribersForSheets = async () => {
+    if (subscribers.length === 0) {
+      setSubscriberActionMsg({ text: 'No subscribers to copy yet.', isError: true });
+      return;
+    }
+    try {
+      const header = 'Subscriber Email\tEnrolled At\tSource Channel\tUser ID\n';
+      const rows = subscribers
+        .map((s) => `${s.email}\t${s.subscribedAt}\t${s.source}\t${s.uid || ''}`)
+        .join('\n');
+      await navigator.clipboard.writeText(header + rows);
+      setHasCopiedSubscribers(true);
+      setSubscriberActionMsg({
+        text: `✓ Copied ${subscribers.length} subscribers! Open Google Sheets in your Drive and press Ctrl+V / Cmd+V to paste immediately.`,
+      });
+      setTimeout(() => {
+        setHasCopiedSubscribers(false);
+        setSubscriberActionMsg(null);
+      }, 5000);
+    } catch (e: any) {
+      setSubscriberActionMsg({ text: 'Could not copy to clipboard: ' + e?.message, isError: true });
+    }
+  };
+
+  // Delete a subscriber from Firestore and local cache
+  const handleDeleteSubscriber = async (subscriber: Subscriber) => {
+    if (!confirm(`Unsubscribe and permanently remove "${subscriber.email}" from the database?`)) return;
+    try {
+      await deleteSubscriberFromFirestore(subscriber.id || subscriber.email);
+      setSubscribers((prev) => prev.filter((s) => s.email !== subscriber.email && s.id !== subscriber.id));
+      setSubscriberActionMsg({ text: `✓ Successfully removed ${subscriber.email} from subscribers.` });
+      setTimeout(() => setSubscriberActionMsg(null), 4000);
+    } catch (e: any) {
+      setSubscriberActionMsg({ text: 'Could not remove subscriber: ' + e?.message, isError: true });
+    }
+  };
+
+  const handleExportCSV = handleExportSubscribersDriveCsv;
 
   // Trigger GitHub Actions workflow remotely
   const handleRunGitHubWorkflow = async () => {
@@ -808,9 +883,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
     );
   }
 
-  const filteredSubscribers = subscribers.filter((s) =>
-    s.email.toLowerCase().includes(subscriberSearch.toLowerCase())
-  );
+  const filteredSubscribers = subscribers.filter((s) => {
+    const q = subscriberSearch.trim().toLowerCase();
+    const matchesSearch = !q || s.email.toLowerCase().includes(q) || (s.source || '').toLowerCase().includes(q);
+
+    const matchesFilter =
+      subscriberFilter === 'all' ||
+      (subscriberFilter === 'newsletter_box' && s.source === 'newsletter_box') ||
+      (subscriberFilter === 'registration' && s.source === 'registration') ||
+      (subscriberFilter === 'google_auth' && (s.source === 'google_auth' || s.source === 'firebase_auth'));
+
+    return matchesSearch && matchesFilter;
+  });
 
   const filteredStories = allStories.filter((s) =>
     (s.title + ' ' + s.category).toLowerCase().includes(storySearch.toLowerCase())
@@ -2623,80 +2707,354 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
-      {/* TAB 3: SUBSCRIBERS */}
+      {/* TAB 3: SUBSCRIBERS DATABASE & GOOGLE DRIVE INTEGRATION */}
       {activeTab === 'subscribers' && (
-        <div
-          style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--line)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '24px',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {/* Header Card with Google Drive Integration */}
+          <div
+            style={{
+              background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--bg-subtle) 100%)',
+              border: '1px solid var(--line-strong)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '28px 32px',
+              boxShadow: 'var(--card-shadow)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '20px',
+            }}
+          >
             <div>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 4px' }}>
-                Audience & Daily Briefing Subscribers
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  background: 'rgba(2, 132, 199, 0.12)',
+                  color: 'var(--blue)',
+                  borderRadius: '20px',
+                  fontSize: '0.8rem',
+                  fontWeight: 800,
+                  marginBottom: '10px',
+                }}
+              >
+                <HardDrive size={14} /> PERSISTENT SUBSCRIBERS DATABASE &amp; GOOGLE DRIVE
+              </div>
+              <h2 style={{ fontSize: '1.7rem', fontWeight: 800, margin: '0 0 6px' }}>
+                Audience &amp; Daily Briefing Subscribers
               </h2>
-              <p style={{ color: 'var(--fg-muted)', fontSize: '0.86rem', margin: 0 }}>
-                Total Readers Enrolled: <strong>{subscribers.length}</strong>
+              <p style={{ color: 'var(--fg-muted)', fontSize: '0.94rem', margin: 0, maxWidth: '680px', lineHeight: 1.5 }}>
+                Every visitor who enrolls in the Viralhoods Morning Dispatch, or creates an account, is stored in this live Firestore database. Full access to search, manage, and export directly into your Google Drive &amp; Sheets.
               </p>
             </div>
 
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="Search subscriber email..."
-                value={subscriberSearch}
-                onChange={(e) => setSubscriberSearch(e.target.value)}
-                style={{ maxWidth: '240px' }}
-              />
+            {/* Quick Actions for Google Drive & Sync */}
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
               <button
                 type="button"
+                onClick={handleExportSubscribersDriveCsv}
                 className="btn-primary"
-                onClick={handleExportCSV}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.88rem' }}
+                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Download CSV formatted for Google Drive / Google Sheets"
               >
-                <Download size={14} /> Export CSV
+                <Download size={15} /> Export for Google Drive (CSV)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopySubscribersForSheets}
+                className="btn-secondary"
+                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Copy entire subscribers database to clipboard to paste directly into Google Sheets"
+              >
+                {hasCopiedSubscribers ? <Check size={15} style={{ color: '#16a34a' }} /> : <Copy size={15} />}
+                {hasCopiedSubscribers ? 'Copied for Drive Sheets!' : 'Copy for Google Sheets'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenDriveSheets}
+                className="btn-secondary"
+                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Open a new Google Sheet in your Google Drive"
+              >
+                <ExternalLink size={15} style={{ color: 'var(--blue)' }} /> Open Google Sheets
+              </button>
+
+              <button
+                type="button"
+                onClick={fetchSubscribers}
+                disabled={isLoadingSubscribers}
+                className="btn-secondary"
+                style={{ padding: '9px 14px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Refresh subscriber list from Firestore database"
+              >
+                <RefreshCw size={14} className={isLoadingSubscribers ? 'animate-spin' : ''} />
+                {isLoadingSubscribers ? 'Syncing...' : 'Sync Cloud DB'}
               </button>
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--line)', textAlign: 'left', color: 'var(--fg-muted)' }}>
-                  <th style={{ padding: '10px 12px' }}>Subscriber Email</th>
-                  <th style={{ padding: '10px 12px' }}>Enrolled On</th>
-                  <th style={{ padding: '10px 12px' }}>Channel</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredSubscribers.map((sub, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 12px', fontWeight: 600 }}>{sub.email}</td>
-                    <td style={{ padding: '10px 12px', color: 'var(--fg-muted)' }}>
-                      {new Date(sub.subscribedAt).toLocaleString()}
-                    </td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <span
-                        style={{
-                          fontSize: '0.76rem',
-                          fontWeight: 700,
-                          padding: '2px 8px',
-                          borderRadius: '12px',
-                          background: 'var(--bg-subtle)',
-                          color: 'var(--fg)',
-                        }}
-                      >
-                        {sub.source}
-                      </span>
-                    </td>
+          {/* Action notification toast */}
+          {subscriberActionMsg && (
+            <div
+              style={{
+                padding: '12px 18px',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.9rem',
+                fontWeight: 700,
+                background: subscriberActionMsg.isError ? '#fee2e2' : 'rgba(16, 185, 129, 0.12)',
+                color: subscriberActionMsg.isError ? '#b91c1c' : '#10b981',
+                border: `1px solid ${subscriberActionMsg.isError ? '#ef4444' : '#10b981'}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              {subscriberActionMsg.isError ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
+              {subscriberActionMsg.text}
+            </div>
+          )}
+
+          {/* 4 Mini Stat Badges for Subscribers Database */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+            <div style={{ padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Total Enrolled Readers
+              </div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--fg)', marginTop: '4px' }}>
+                {subscribers.length}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600, marginTop: '2px' }}>
+                ✓ Synced to Firestore Database
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Morning Dispatch Box
+              </div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--blue)', marginTop: '4px' }}>
+                {subscribers.filter((s) => s.source === 'newsletter_box').length}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--fg-muted)', fontWeight: 600, marginTop: '2px' }}>
+                Feed &amp; Article Enrollees
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Registered Accounts
+              </div>
+              <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--fg)', marginTop: '4px' }}>
+                {subscribers.filter((s) => s.source !== 'newsletter_box').length}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--fg-muted)', fontWeight: 600, marginTop: '2px' }}>
+                Auto-Subscribed on Sign-up
+              </div>
+            </div>
+
+            <div style={{ padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
+                Chief Administrator
+              </div>
+              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
+                tobionlyn@gmail.com
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, marginTop: '2px' }}>
+                👑 Full Subscriber Authority
+              </div>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '24px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 4px' }}>
+                  Audience Directory ({filteredSubscribers.length})
+                </h3>
+                <p style={{ color: 'var(--fg-muted)', fontSize: '0.86rem', margin: 0 }}>
+                  Real-time database of newsletter subscribers with channel origin and enrollment timestamps.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Filter by email or source channel..."
+                  value={subscriberSearch}
+                  onChange={(e) => setSubscriberSearch(e.target.value)}
+                  style={{ minWidth: '240px' }}
+                />
+
+                <select
+                  value={subscriberFilter}
+                  onChange={(e) => setSubscriberFilter(e.target.value as any)}
+                  className="form-input"
+                  style={{ width: 'auto', padding: '8px 12px' }}
+                >
+                  <option value="all">All Sources</option>
+                  <option value="newsletter_box">Morning Dispatch Box</option>
+                  <option value="registration">Password Registration</option>
+                  <option value="google_auth">Google Auth / Portal</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Subscribers Table */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--line)', textAlign: 'left', color: 'var(--fg-muted)', fontSize: '0.78rem', textTransform: 'uppercase' }}>
+                    <th style={{ padding: '12px 14px' }}>Subscriber Email</th>
+                    <th style={{ padding: '12px 14px' }}>Enrolled On</th>
+                    <th style={{ padding: '12px 14px' }}>Source Channel</th>
+                    <th style={{ padding: '12px 14px' }}>Status</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredSubscribers.map((sub, idx) => {
+                    const emailInitial = (sub.email || 'S').charAt(0).toUpperCase();
+                    const isMorningBox = sub.source === 'newsletter_box';
+                    const isGoogle = sub.source === 'google_auth' || sub.source === 'firebase_auth';
+
+                    return (
+                      <tr key={sub.id || idx} style={{ borderBottom: '1px solid var(--line)', transition: 'background 0.1s ease' }}>
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: 'var(--blue-tint)',
+                                color: 'var(--blue)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 800,
+                                fontSize: '0.82rem',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {emailInitial}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: 700, color: 'var(--fg)' }}>
+                                {sub.email}
+                              </div>
+                              {sub.id && (
+                                <div style={{ fontSize: '0.74rem', color: 'var(--fg-muted)' }}>
+                                  ID: {sub.id.slice(0, 16)}...
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td style={{ padding: '12px 14px', color: 'var(--fg-muted)', fontSize: '0.84rem' }}>
+                          <div>{new Date(sub.subscribedAt).toLocaleDateString()}</div>
+                          <div style={{ fontSize: '0.74rem' }}>
+                            {new Date(sub.subscribedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </td>
+
+                        <td style={{ padding: '12px 14px' }}>
+                          <span
+                            style={{
+                              fontSize: '0.76rem',
+                              fontWeight: 700,
+                              padding: '3px 10px',
+                              borderRadius: '12px',
+                              background: isMorningBox
+                                ? 'rgba(2, 132, 199, 0.12)'
+                                : isGoogle
+                                ? 'rgba(66, 133, 244, 0.12)'
+                                : 'var(--bg-subtle)',
+                              color: isMorningBox ? 'var(--blue)' : isGoogle ? '#4285f4' : 'var(--fg)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Mail size={12} />
+                            {isMorningBox
+                              ? 'Morning Dispatch Box'
+                              : isGoogle
+                              ? 'Google Auth'
+                              : sub.source === 'registration'
+                              ? 'Account Registration'
+                              : sub.source}
+                          </span>
+                        </td>
+
+                        <td style={{ padding: '12px 14px' }}>
+                          <span
+                            style={{
+                              fontSize: '0.76rem',
+                              fontWeight: 800,
+                              padding: '2px 8px',
+                              borderRadius: '10px',
+                              background: 'rgba(22, 163, 74, 0.12)',
+                              color: '#16a34a',
+                            }}
+                          >
+                            Active
+                          </span>
+                        </td>
+
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSubscriber(sub)}
+                            style={{
+                              background: 'transparent',
+                              border: '1px solid #fee2e2',
+                              color: '#ef4444',
+                              padding: '5px 10px',
+                              borderRadius: 'var(--radius-md)',
+                              fontSize: '0.78rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease',
+                            }}
+                            title="Unsubscribe and remove from database"
+                          >
+                            <Trash2 size={13} /> Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {filteredSubscribers.length === 0 && (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-muted)' }}>
+                  <Users size={32} style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+                  <p style={{ margin: 0 }}>
+                    {isLoadingSubscribers
+                      ? 'Syncing subscribers from Firestore database...'
+                      : 'No subscribers found matching your criteria. New enrollments from the Morning Dispatch box and account sign-ups will appear here live.'}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

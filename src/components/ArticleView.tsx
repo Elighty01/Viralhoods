@@ -27,7 +27,7 @@ interface ArticleViewProps {
   onToggleBookmark: (id: string, e: React.MouseEvent) => void;
   onBack: () => void;
   onOpenStory: (item: NewsItem) => void;
-  onSubscribe: (email: string) => void;
+  onSubscribe: (email: string) => Promise<boolean> | boolean | void;
 }
 
 /**

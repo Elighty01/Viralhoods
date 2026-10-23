@@ -24,9 +24,11 @@ export interface NewsData {
 }
 
 export interface Subscriber {
+  id?: string;
   email: string;
   subscribedAt: string;
-  source: 'login' | 'newsletter_box' | 'registration';
+  source: 'login' | 'newsletter_box' | 'registration' | string;
+  uid?: string;
 }
 
 export interface User {

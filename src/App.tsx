@@ -488,9 +488,9 @@ export const App: React.FC = () => {
     }
   };
 
-  // Newsletter subscribe helper
-  const handleSubscribe = (email: string): boolean => {
-    return addSubscriber(email, 'newsletter_box');
+  // Newsletter subscribe helper — writes to Firestore cloud database
+  const handleSubscribe = async (email: string): Promise<boolean> => {
+    return await addSubscriber(email, 'newsletter_box', currentUser?.uid);
   };
 
   // Admin Story operations

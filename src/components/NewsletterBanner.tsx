@@ -2,32 +2,42 @@ import React, { useState } from 'react';
 import { Mail, CheckCircle } from 'lucide-react';
 
 interface NewsletterBannerProps {
-  onSubscribe: (email: string) => boolean;
+  onSubscribe: (email: string) => Promise<boolean> | boolean;
 }
 
 export const NewsletterBanner: React.FC<NewsletterBannerProps> = ({ onSubscribe }) => {
   const [email, setEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [alreadySubscribed, setAlreadySubscribed] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const clean = email.trim();
+    const clean = email.trim().toLowerCase();
     if (!clean || !clean.includes('@')) return;
 
-    const added = onSubscribe(clean);
-    setEmail('');
-    if (added) {
+    setIsSubmitting(true);
+    try {
+      const added = await onSubscribe(clean);
+      setEmail('');
+      if (added) {
+        setSubmitted(true);
+        setAlreadySubscribed(false);
+      } else {
+        setAlreadySubscribed(true);
+      }
+    } catch (err) {
+      console.warn('Newsletter subscribe note:', err);
       setSubmitted(true);
-      setAlreadySubscribed(false);
-    } else {
-      setAlreadySubscribed(true);
+      setEmail('');
+    } finally {
+      setIsSubmitting(false);
     }
 
     setTimeout(() => {
       setSubmitted(false);
       setAlreadySubscribed(false);
-    }, 4000);
+    }, 4500);
   };
 
   return (
@@ -70,8 +80,8 @@ export const NewsletterBanner: React.FC<NewsletterBannerProps> = ({ onSubscribe 
               border: '1px solid rgba(255, 255, 255, 0.3)',
             }}
           />
-          <button type="submit" style={{ background: 'var(--blue)', color: '#ffffff', fontWeight: 800 }}>
-            Join Free
+          <button type="submit" disabled={isSubmitting} style={{ background: 'var(--blue)', color: '#ffffff', fontWeight: 800 }}>
+            {isSubmitting ? 'Joining...' : 'Join Free'}
           </button>
         </form>
 

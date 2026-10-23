@@ -35,7 +35,7 @@ interface FeedViewProps {
   onClearBookmarksFilter: () => void;
   onToggleBookmark: (id: string, e: React.MouseEvent) => void;
   onOpenStory: (item: NewsItem) => void;
-  onSubscribe: (email: string) => boolean;
+  onSubscribe: (email: string) => Promise<boolean> | boolean;
   currentUser?: User | null;
   onOpenAuth?: (message?: string) => void;
   entertainmentSubpage?: EntertainmentSubpage;

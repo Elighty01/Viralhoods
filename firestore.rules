@@ -23,14 +23,16 @@ service cloud.firestore {
     }
 
     match /subscribers/{subscriberId} {
+      // Anyone (anonymous readers or logged-in users) can subscribe to the Daily Briefing
       allow create: if request.resource.data.email is string
+        && request.resource.data.email.size() >= 4
+        && request.resource.data.email.size() <= 256
         && request.resource.data.email.matches('.*@.*\\..*')
-        && request.resource.data.uid == request.auth.uid;
+        && request.resource.data.subscribedAt is string;
+      // Only admins can view the subscriber database (protects subscriber PII)
       allow read: if isAdmin();
-      // A signed-in user may update/delete their OWN subscriber record
-      // (subscriberId is their uid) — e.g. the lastLogin-style sync that
-      // runs on every sign-in — in addition to admins managing any record.
-      allow update, delete: if isAdmin() || (signedIn() && request.auth.uid == subscriberId);
+      // Admins can manage any record; signed-in users can update/delete their own record
+      allow update, delete: if isAdmin() || (signedIn() && (resource.data.uid == request.auth.uid || subscriberId == request.auth.uid));
     }
 
     match /members/{memberId} {
