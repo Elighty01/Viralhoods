@@ -1074,3 +1074,14 @@ footer .w {
   border-top: 1px solid var(--line);
   padding-top: 16px;
 }
+
+/* Spinning-icon utility — used for in-progress states (scraper running,
+   uploading, loading). This class was referenced in several places (the
+   admin bot controls, now also Community) but never actually defined. */
+.spin-icon {
+  animation: vh-spin 0.9s linear infinite;
+}
+@keyframes vh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

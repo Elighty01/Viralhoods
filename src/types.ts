@@ -32,15 +32,14 @@ export interface Subscriber {
 export interface User {
   email: string;
   name?: string;
+  // Reflects a real Firebase Auth custom claim ("admin": true), synced and
+  // verified server-side — see firebase.ts `refreshAdminStatus`. This is no
+  // longer a client-trusted flag by itself.
   isAdmin: boolean;
-}
-
-export interface RegisteredAccount {
-  usernameOrEmail: string;
-  password?: string; // Stored locally/in firestore for member account validation
-  name?: string;
-  createdAt: string;
-  isAdmin?: boolean;
+  uid?: string;
+  // Set once the user claims a Community username (see utils/community.ts
+  // `claimUsername`). Undefined/null means they haven't picked one yet.
+  username?: string | null;
 }
 
 export interface RegisteredMemberRecord {
@@ -58,15 +57,14 @@ export interface RegisteredMemberRecord {
   location?: string;
 }
 
-export const CHIEF_ADMIN_EMAILS = [
-  'tobionlyn@gmail.com',
-] as const;
-
-export const CHIEF_ADMIN_EMAIL = 'tobionlyn@gmail.com';
-export const VIRALHOODS_ADMIN_USERNAME = 'tobionlyn@gmail.com';
-export const VIRALHOODS_ADMIN_PASSWORD = '2026@Wemakingit';
-export const ADMIN_MASTER_PASSWORD = '2026@Wemakingit';
-export const ACCEPTED_ADMIN_PASSWORDS = ['2026@Wemakingit'];
+// The Chief Administrator's identity. This is a UI hint only (used to label
+// the roster and decide whether to *attempt* the admin claim bootstrap after
+// sign-in) — it grants no privilege by itself. Real authorization is a
+// Firebase custom claim ("admin": true) that only the `syncChiefAdminClaim`
+// Cloud Function can set, and that Firestore security rules check
+// server-side. See functions/src/index.ts.
+export const CHIEF_ADMIN_EMAILS = ['tobionlyn@gmail.com'] as const;
+export const CHIEF_ADMIN_EMAIL = CHIEF_ADMIN_EMAILS[0];
 
 export const isChiefAdminEmail = (emailOrUsername?: string | null): boolean => {
   if (!emailOrUsername) return false;
@@ -98,6 +96,12 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number];
 
+// Entertainment Hub sub-pages. Stories tagged with one of these in
+// `subSector` (category === 'Entertainment') populate that sub-page's bot
+// feed, in addition to the curated editorial picks.
+export const ENTERTAINMENT_SUBSECTORS = ['videos', 'music', 'movies', 'novels'] as const;
+export type EntertainmentSubsector = (typeof ENTERTAINMENT_SUBSECTORS)[number];
+
 export interface GoogleSearchResultItem {
   title: string;
   url: string;
@@ -122,6 +126,50 @@ export interface LocalSearchResultItem {
   author?: string;
   readTime?: string;
   score?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Community (user-posted blog/board)
+// ---------------------------------------------------------------------------
+
+export const POST_TYPES = ['text', 'image', 'video', 'link'] as const;
+export type PostType = (typeof POST_TYPES)[number];
+
+export interface LinkPreview {
+  title?: string;
+  description?: string;
+  image?: string;
+  domain?: string;
+}
+
+export interface CommunityPost {
+  id: string;
+  authorUid: string;
+  authorUsername: string;
+  authorName: string;
+  authorPhotoURL?: string | null;
+  type: PostType;
+  title: string;
+  body?: string;
+  imageUrls?: string[];
+  videoEmbedUrl?: string;
+  videoSourceUrl?: string;
+  linkUrl?: string;
+  linkPreview?: LinkPreview | null;
+  createdAt: string;
+  updatedAt?: string;
+  likeCount: number;
+  likedBy?: string[];
+}
+
+export interface UserProfile {
+  uid: string;
+  username: string;
+  usernameLower: string;
+  displayName: string;
+  bio?: string;
+  photoURL?: string | null;
+  createdAt: string;
 }
 
 export interface UnifiedSearchResponse {

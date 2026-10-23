@@ -1,23 +1,30 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Header } from './components/Header';
 import { Footer } from './components/Footer';
 import { FeedView } from './components/FeedView';
 import { ArticleView } from './components/ArticleView';
 import { AboutView } from './components/AboutView';
-import { AdminView } from './components/AdminView';
 import { BrandPage } from './components/BrandPage';
-import { AuthModal } from './components/AuthModal';
-import { AiAssistantDrawer } from './components/AiAssistantDrawer';
-import { AiMediaStudioModal } from './components/AiMediaStudioModal';
-import { NewsData, NewsItem, CATEGORIES, User } from './types';
+
+// Lazily loaded: each of these is a large, feature-specific surface (the
+// 3,000+ line admin console; the AI chat/image tools) that most page views
+// never touch. Splitting them into their own chunks — loaded only the first
+// time the user actually opens that feature — keeps the JS every reader
+// downloads on a normal visit much smaller.
+const AdminView = lazy(() => import('./components/AdminView').then((m) => ({ default: m.AdminView })));
+const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })));
+const AiAssistantDrawer = lazy(() => import('./components/AiAssistantDrawer').then((m) => ({ default: m.AiAssistantDrawer })));
+const AiMediaStudioModal = lazy(() => import('./components/AiMediaStudioModal').then((m) => ({ default: m.AiMediaStudioModal })));
+const CommunityHub = lazy(() => import('./components/CommunityHub').then((m) => ({ default: m.CommunityHub })));
+const ProfilePage = lazy(() => import('./components/ProfilePage').then((m) => ({ default: m.ProfilePage })));
+const CreatePostModal = lazy(() => import('./components/CreatePostModal').then((m) => ({ default: m.CreatePostModal })));
+const UsernameSetupModal = lazy(() => import('./components/UsernameSetupModal').then((m) => ({ default: m.UsernameSetupModal })));
+import { NewsData, NewsItem, CATEGORIES, User, CommunityPost } from './types';
 import { LogOut, X } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
-import { auth, onAuthStateChanged, fbSignOut, db } from './firebase';
+import { auth, onAuthStateChanged, fbSignOut, db, refreshAdminStatus } from './firebase';
 import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
 import {
-  getCurrentUser,
-  setCurrentUser as persistUser,
-  clearCurrentUser,
   getBookmarks,
   toggleBookmark,
   getCustomStories,
@@ -25,11 +32,12 @@ import {
   deleteCustomStory,
   addSubscriber,
 } from './utils/storage';
+import { fetchProfileByUid } from './utils/community';
 import { trackPageVisit } from './utils/analytics';
 import { sanitizeNewsItem } from './utils/sanitize';
 import initialNewsData from '../data/news.json';
 
-type ActiveView = 'feed' | 'story' | 'about' | 'admin' | 'brand';
+type ActiveView = 'feed' | 'story' | 'about' | 'admin' | 'brand' | 'community' | 'profile';
 
 export const App: React.FC = () => {
   const [view, setView] = useState<ActiveView>('feed');
@@ -58,6 +66,12 @@ export const App: React.FC = () => {
   // Sign out confirmation modal state
   const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState<boolean>(false);
 
+  // Community (blog/board) state
+  const [activeProfileUsername, setActiveProfileUsername] = useState<string>('');
+  const [isCreatePostOpen, setIsCreatePostOpen] = useState<boolean>(false);
+  const [isUsernameSetupOpen, setIsUsernameSetupOpen] = useState<boolean>(false);
+  const [latestCommunityPost, setLatestCommunityPost] = useState<CommunityPost | null>(null);
+
   // Bookmarks
   const [bookmarks, setBookmarks] = useState<string[]>([]);
   const [showOnlyBookmarks, setShowOnlyBookmarks] = useState<boolean>(false);
@@ -65,27 +79,33 @@ export const App: React.FC = () => {
   // Theme state
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
-  // Initialize theme, user, custom stories, and bookmarks on mount
+  // Initialize theme, custom stories, and bookmarks on mount
   useEffect(() => {
-    // 1. User from local storage
-    const user = getCurrentUser();
-    if (user) setCurrentUser(user);
-
-    // 2. Firebase Auth Listener
-    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
-      if (fbUser && fbUser.email) {
-        const syncd = persistUser(fbUser.email, fbUser.displayName || '');
-        setCurrentUser(syncd);
+    // 1. Firebase Auth Listener — this is the single source of truth for
+    // sign-in state. `isAdmin` reflects a real server-verified custom claim
+    // (see firebase.ts `refreshAdminStatus`), not a locally-stored flag.
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        const [isAdmin, profile] = await Promise.all([refreshAdminStatus(fbUser), fetchProfileByUid(fbUser.uid)]);
+        setCurrentUser({
+          email: fbUser.email || '',
+          name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',
+          isAdmin,
+          uid: fbUser.uid,
+          username: profile?.username || null,
+        });
+      } else {
+        setCurrentUser(null);
       }
     });
 
-    // 3. Bookmarks
+    // 2. Bookmarks
     setBookmarks(getBookmarks());
 
-    // 4. Custom stories
+    // 3. Custom stories
     setCustomStories(getCustomStories());
 
-    // 5. Theme
+    // 4. Theme
     const savedTheme = localStorage.getItem('viralhoods_theme') as 'light' | 'dark' | null;
     if (savedTheme) {
       setTheme(savedTheme);
@@ -153,6 +173,17 @@ export const App: React.FC = () => {
       return;
     }
 
+    if (rawHash.toLowerCase() === 'community') {
+      setView('community');
+      return;
+    }
+
+    if (rawHash.toLowerCase().startsWith('u/')) {
+      setActiveProfileUsername(rawHash.slice(2));
+      setView('profile');
+      return;
+    }
+
     // Check for Entertainment and Entertainment subpages
     if (rawHash.toLowerCase().startsWith('entertainment')) {
       setView('feed');
@@ -217,6 +248,12 @@ export const App: React.FC = () => {
     } else if (view === 'admin') {
       pageName = 'Admin Editorial Console';
       path = '#admin';
+    } else if (view === 'community') {
+      pageName = 'Community';
+      path = '#community';
+    } else if (view === 'profile') {
+      pageName = `Profile: @${activeProfileUsername}`;
+      path = `#u/${activeProfileUsername}`;
     } else if (view === 'feed') {
       if (showOnlyBookmarks) {
         pageName = 'Saved Bookmarks';
@@ -241,7 +278,7 @@ export const App: React.FC = () => {
       storyTitle,
       category,
     });
-  }, [view, currentCategory, entertainmentSubpage, activeStoryId, showOnlyBookmarks, currentActiveStory]);
+  }, [view, currentCategory, entertainmentSubpage, activeStoryId, showOnlyBookmarks, currentActiveStory, activeProfileUsername]);
 
   // Fetch latest data from /data/news.json & Firestore database
   const fetchNews = useCallback(async () => {
@@ -346,7 +383,33 @@ export const App: React.FC = () => {
     window.location.hash = 'All';
   };
 
-  const handleNavigateView = (targetView: 'about' | 'admin' | 'brand') => {
+  const handleOpenProfile = (username: string) => {
+    window.location.hash = `u/${username}`;
+  };
+
+  const handleOpenCreatePost = () => {
+    if (!currentUser) {
+      handleOpenAuthWithMessage('Sign in to create a post.');
+      return;
+    }
+    if (!currentUser.username) {
+      setIsUsernameSetupOpen(true);
+      return;
+    }
+    setIsCreatePostOpen(true);
+  };
+
+  const handleUsernameClaimed = (username: string) => {
+    setCurrentUser((prev) => (prev ? { ...prev, username } : prev));
+    setIsUsernameSetupOpen(false);
+    setIsCreatePostOpen(true);
+  };
+
+  const handlePostCreated = (post: CommunityPost) => {
+    setLatestCommunityPost(post);
+  };
+
+  const handleNavigateView = (targetView: 'about' | 'admin' | 'brand' | 'community') => {
     window.location.hash = targetView;
   };
 
@@ -383,9 +446,8 @@ export const App: React.FC = () => {
     try {
       await fbSignOut(auth);
     } catch (e) {
-      // ignore
+      // ignore — the auth state listener will still clear currentUser below
     }
-    clearCurrentUser();
     setCurrentUser(null);
     if (view === 'admin') {
       window.location.hash = 'All';
@@ -415,10 +477,12 @@ export const App: React.FC = () => {
       <Header
         currentCategory={currentCategory}
         isFeedView={view === 'feed'}
+        isCommunityView={view === 'community' || view === 'profile'}
         onSelectCategory={handleSelectCategory}
         onNavigateHome={handleNavigateHome}
         onNavigateBrand={() => handleNavigateView('brand')}
         onNavigateAdmin={() => handleNavigateView('admin')}
+        onNavigateCommunity={() => handleNavigateView('community')}
         onOpenAiChat={handleOpenAiAssistant}
         onOpenAiStudio={handleOpenAiStudio}
         currentUser={currentUser}
@@ -477,48 +541,109 @@ export const App: React.FC = () => {
 
       {view === 'brand' && <BrandPage />}
 
+      {view === 'community' && (
+        <Suspense fallback={<div style={{ padding: '80px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading Community...</div>}>
+          <CommunityHub
+            currentUser={currentUser}
+            onOpenAuth={handleOpenAuthWithMessage}
+            onOpenCreatePost={handleOpenCreatePost}
+            onOpenProfile={handleOpenProfile}
+            newPost={latestCommunityPost}
+          />
+        </Suspense>
+      )}
+
+      {view === 'profile' && (
+        <Suspense fallback={<div style={{ padding: '80px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading profile...</div>}>
+          <ProfilePage
+            username={activeProfileUsername}
+            currentUser={currentUser}
+            onOpenProfile={handleOpenProfile}
+            onBack={() => handleNavigateView('community')}
+          />
+        </Suspense>
+      )}
+
       {view === 'admin' && (
-        <AdminView
-          currentUser={currentUser}
-          onOpenAuth={() => handleOpenAuthWithMessage()}
-          onAuthorizeAdmin={(user) => setCurrentUser(user)}
-          allStories={allStories}
-          onAddStory={handleAddCustomStory}
-          onDeleteStory={handleDeleteStory}
-          onPreviewStory={handleOpenStory}
-          onRefreshData={fetchNews}
-        />
+        <Suspense fallback={<div style={{ padding: '80px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading admin console...</div>}>
+          <AdminView
+            currentUser={currentUser}
+            onOpenAuth={() => handleOpenAuthWithMessage()}
+            onAuthorizeAdmin={(user) => setCurrentUser(user)}
+            allStories={allStories}
+            onAddStory={handleAddCustomStory}
+            onDeleteStory={handleDeleteStory}
+            onPreviewStory={handleOpenStory}
+            onRefreshData={fetchNews}
+          />
+        </Suspense>
       )}
 
       <Footer currentUser={currentUser} onNavigate={handleNavigateView} />
 
-      {/* Auth & Newsletter Modal */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => {
-          setIsAuthOpen(false);
-          setAuthPromptMessage(undefined);
-        }}
-        onSuccess={handleAuthSuccess}
-        initialPromptMessage={authPromptMessage}
-      />
+      {/* Auth & Newsletter Modal — mounted only while open, so its code
+          isn't fetched until the reader actually opens it. */}
+      {isAuthOpen && (
+        <Suspense fallback={null}>
+          <AuthModal
+            isOpen={isAuthOpen}
+            onClose={() => {
+              setIsAuthOpen(false);
+              setAuthPromptMessage(undefined);
+            }}
+            onSuccess={handleAuthSuccess}
+            initialPromptMessage={authPromptMessage}
+          />
+        </Suspense>
+      )}
+
+      {/* Community: username setup (first post) and the post composer */}
+      {isUsernameSetupOpen && currentUser && (
+        <Suspense fallback={null}>
+          <UsernameSetupModal
+            isOpen={isUsernameSetupOpen}
+            onClose={() => setIsUsernameSetupOpen(false)}
+            currentUser={currentUser}
+            onClaimed={handleUsernameClaimed}
+          />
+        </Suspense>
+      )}
+
+      {isCreatePostOpen && currentUser && (
+        <Suspense fallback={null}>
+          <CreatePostModal
+            isOpen={isCreatePostOpen}
+            onClose={() => setIsCreatePostOpen(false)}
+            currentUser={currentUser}
+            onCreated={handlePostCreated}
+          />
+        </Suspense>
+      )}
 
       {/* Gemini AI Assistant Drawer */}
-      <AiAssistantDrawer
-        isOpen={isAiChatOpen}
-        onClose={() => setIsAiChatOpen(false)}
-        activeSector={currentCategory}
-        currentUser={currentUser}
-        onOpenAuth={handleOpenAuthWithMessage}
-      />
+      {isAiChatOpen && (
+        <Suspense fallback={null}>
+          <AiAssistantDrawer
+            isOpen={isAiChatOpen}
+            onClose={() => setIsAiChatOpen(false)}
+            activeSector={currentCategory}
+            currentUser={currentUser}
+            onOpenAuth={handleOpenAuthWithMessage}
+          />
+        </Suspense>
+      )}
 
       {/* Gemini Media Studio Modal */}
-      <AiMediaStudioModal
-        isOpen={isAiStudioOpen}
-        onClose={() => setIsAiStudioOpen(false)}
-        currentUser={currentUser}
-        onOpenAuth={handleOpenAuthWithMessage}
-      />
+      {isAiStudioOpen && (
+        <Suspense fallback={null}>
+          <AiMediaStudioModal
+            isOpen={isAiStudioOpen}
+            onClose={() => setIsAiStudioOpen(false)}
+            currentUser={currentUser}
+            onOpenAuth={handleOpenAuthWithMessage}
+          />
+        </Suspense>
+      )}
 
       {/* Sign Out Confirmation Modal */}
       {isSignOutConfirmOpen && (

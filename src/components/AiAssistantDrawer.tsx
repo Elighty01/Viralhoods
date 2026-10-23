@@ -15,6 +15,8 @@ import {
   Lock,
 } from 'lucide-react';
 import { User } from '../types';
+import { functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
 
 interface ChatMessage {
   id: string;
@@ -86,21 +88,15 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
         text: m.text,
       }));
 
-      const res = await fetch('/api/gemini/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: history,
-          model: selectedModel,
-          useSearch: useSearchGrounding,
-        }),
+      const geminiChat = httpsCallable(functions, 'geminiChat');
+      const res: any = await geminiChat({
+        messages: history,
+        model: selectedModel,
+        useSearch: useSearchGrounding,
+        activeSector,
       });
 
-      if (!res.ok) {
-        throw new Error(`API error ${res.status}`);
-      }
-
-      const data = await res.json();
+      const data = res.data || {};
       const assistantMsg: ChatMessage = {
         id: 'bot_' + Date.now(),
         role: 'assistant',
@@ -119,12 +115,18 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
         window.speechSynthesis.speak(utter);
       }
     } catch (err: any) {
+      const friendly =
+        err?.code === 'functions/unauthenticated'
+          ? 'Please sign in to use the AI Assistant.'
+          : err?.code === 'functions/failed-precondition'
+          ? 'The AI Assistant isn\u2019t fully configured yet on the server side.'
+          : err?.message || 'Check your internet connection and try again.';
       setMessages((prev) => [
         ...prev,
         {
           id: 'err_' + Date.now(),
           role: 'assistant',
-          text: `Apologies, I encountered an error: ${err?.message || 'Check your internet connection'}.`,
+          text: `Apologies, I encountered an error: ${friendly}`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -164,17 +166,13 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
             const base64Audio = (reader.result as string).split(',')[1];
             setIsLoading(true);
             try {
-              const transRes = await fetch('/api/gemini/transcribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  audioBase64: base64Audio,
-                  mimeType: 'audio/webm',
-                }),
+              const geminiTranscribe = httpsCallable(functions, 'geminiTranscribe');
+              const transRes: any = await geminiTranscribe({
+                audioBase64: base64Audio,
+                mimeType: 'audio/webm',
               });
-              const transData = await transRes.json();
-              if (transData.text) {
-                setInputText(transData.text);
+              if (transRes.data?.text) {
+                setInputText(transRes.data.text);
               }
             } catch (err) {
               console.error('Transcription failed:', err);

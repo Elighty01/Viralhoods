@@ -5,7 +5,7 @@ import { Shield } from 'lucide-react';
 
 interface FooterProps {
   currentUser: User | null;
-  onNavigate: (view: 'about' | 'admin' | 'brand') => void;
+  onNavigate: (view: 'about' | 'admin' | 'brand' | 'community') => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate }) => {
@@ -18,6 +18,9 @@ export const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate }) => {
           <nav className="footer-nav" aria-label="Footer navigation">
             <button type="button" onClick={() => onNavigate('about')}>
               About & Editorial Standards
+            </button>
+            <button type="button" onClick={() => onNavigate('community')}>
+              Community
             </button>
             <button type="button" onClick={() => onNavigate('brand')}>
               Brand Kit & Logo

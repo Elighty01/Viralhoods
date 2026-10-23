@@ -11,15 +11,18 @@ import {
   Palette,
   Sparkles,
   Film,
+  Users,
 } from 'lucide-react';
 
 interface HeaderProps {
   currentCategory: string;
   isFeedView: boolean;
+  isCommunityView: boolean;
   onSelectCategory: (category: string) => void;
   onNavigateHome: () => void;
   onNavigateBrand: () => void;
   onNavigateAdmin: () => void;
+  onNavigateCommunity: () => void;
   onOpenAiChat: () => void;
   onOpenAiStudio: () => void;
   currentUser: User | null;
@@ -35,10 +38,12 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentCategory,
   isFeedView,
+  isCommunityView,
   onSelectCategory,
   onNavigateHome,
   onNavigateBrand,
   onNavigateAdmin,
+  onNavigateCommunity,
   onOpenAiChat,
   onOpenAiStudio,
   currentUser,
@@ -223,6 +228,14 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               );
             })}
+            <button
+              type="button"
+              className={`nav-tab ${isCommunityView ? 'on' : ''}`}
+              onClick={onNavigateCommunity}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+            >
+              <Users size={13} /> Community
+            </button>
           </nav>
         </div>
       </header>

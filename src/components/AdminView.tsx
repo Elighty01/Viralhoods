@@ -5,33 +5,25 @@ import {
   Subscriber,
   CATEGORIES,
   Category,
-  ADMIN_MASTER_PASSWORD,
   CHIEF_ADMIN_EMAIL,
   CHIEF_ADMIN_EMAILS,
   isChiefAdminEmail,
-  VIRALHOODS_ADMIN_USERNAME,
-  VIRALHOODS_ADMIN_PASSWORD,
   AdminMember,
   RegisteredMemberRecord,
+  CommunityPost,
 } from '../types';
 import {
   getSubscribers,
   saveCustomStory,
   deleteCustomStory,
-  verifyAdminPassword,
-  setCurrentUser,
-  getAdminMembers,
-  addAdminMember,
-  removeAdminMember,
-  getRegisteredAccounts,
   getChiefAdminStealthMode,
   setChiefAdminStealthMode,
-  deleteAdminCompletelyAndPurgeHistory,
-  purgeRemovedAdminHistory,
 } from '../utils/storage';
 import { generateOriginalStory } from '../utils/articleGenerator';
-import { db } from '../firebase';
-import { doc, setDoc, deleteDoc, collection, getDocs } from 'firebase/firestore';
+import { db, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { doc, setDoc, getDoc, deleteDoc, collection, getDocs, query, orderBy, limit as fsLimit } from 'firebase/firestore';
+import { deletePost as deleteCommunityPost } from '../utils/community';
 import {
   Lock,
   Sparkles,
@@ -76,6 +68,7 @@ import {
   Copy,
   Check,
   HardDrive,
+  Flag,
 } from 'lucide-react';
 import {
   fetchAnalyticsData,
@@ -110,38 +103,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onPreviewStory,
   onRefreshData,
 }) => {
-  // Strictly restricted: ONLY Chief Administrator tobionlyn@gmail.com is authorized
-  const isAuthorized = Boolean(currentUser?.isAdmin && isChiefAdminEmail(currentUser?.email));
-  const isChiefAdmin = Boolean(currentUser && isChiefAdminEmail(currentUser.email));
+  // Real authorization: `isAdmin` is a Firebase custom claim, verified
+  // server-side on sign-in (see firebase.ts `refreshAdminStatus`) and
+  // re-checked by every Firestore write via security rules. Any admin
+  // (chief or appointed) can open the dashboard; only the chief admin can
+  // appoint or remove other admins (see `isChiefAdmin` below).
+  const isAuthorized = Boolean(currentUser?.isAdmin);
+  const isChiefAdmin = Boolean(currentUser?.isAdmin && isChiefAdminEmail(currentUser.email));
 
   const [stealthMode, setStealthMode] = useState<'hidden' | 'masked'>(getChiefAdminStealthMode());
 
-  const [activeTab, setActiveTab] = useState<'stats' | 'bot' | 'stories' | 'subscribers' | 'roles' | 'users' | 'schedule'>(
+  const [activeTab, setActiveTab] = useState<'stats' | 'bot' | 'stories' | 'subscribers' | 'roles' | 'users' | 'schedule' | 'community'>(
     'stats'
   );
-
-  // Security gate username & password state - Restricted exclusively to Chief Administrator
-  const [adminUsernameInput, setAdminUsernameInput] = useState('');
-  const [adminPasswordInput, setAdminPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-
-  // Auto-cleanup non-chief admin records from Firestore and storage
-  useEffect(() => {
-    const purgeNonChiefAdmins = async () => {
-      try {
-        await deleteDoc(doc(db, 'admins', 'viralhoods'));
-        await deleteDoc(doc(db, 'admins', 'yussuftimi'));
-        await deleteDoc(doc(db, 'admins', 'yussuftimi_gmail_com'));
-        await deleteDoc(doc(db, 'members', 'viralhoods'));
-        await deleteDoc(doc(db, 'members', 'yussuftimi'));
-        await deleteDoc(doc(db, 'members', 'yussuftimi_gmail_com'));
-        purgeRemovedAdminHistory();
-      } catch (e) {
-        // quiet cleanup
-      }
-    };
-    purgeNonChiefAdmins();
-  }, []);
 
   // Registered Users & Login Database state (Drops all registrations and logins for Chief Admin)
   const [registeredMembers, setRegisteredMembers] = useState<RegisteredMemberRecord[]>([]);
@@ -156,75 +130,36 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isResettingBaseline, setIsResettingBaseline] = useState(false);
   const [resetBaselineMsg, setResetBaselineMsg] = useState<string | null>(null);
 
-  // Function to load all registered members and logins across Firestore and Server
+  // Load all registered members from Firestore's `registered_users`
+  // collection — the real, single source of truth now that sign-up goes
+  // through Firebase Auth (see AuthModal.tsx `syncMemberRecord`).
   const fetchRegisteredMembers = async () => {
     setIsLoadingMembers(true);
     try {
-      // 1. Fetch from server persistent database
-      let serverMembers: RegisteredMemberRecord[] = [];
-      try {
-        const res = await fetch('/api/members/list');
-        if (res.ok) {
-          const json = await res.json();
-          if (Array.isArray(json.members)) serverMembers = json.members;
-        }
-      } catch (err) {}
-
-      // 2. Fetch from Firestore registered_users collection
-      let firestoreMembers: RegisteredMemberRecord[] = [];
-      try {
-        const snap = await getDocs(collection(db, 'registered_users'));
-        if (!snap.empty) {
-          snap.forEach((d) => {
-            const data = d.data();
-            firestoreMembers.push({
-              id: data.id || d.id,
-              usernameOrEmail: data.usernameOrEmail || data.email || d.id,
-              email: data.email || data.usernameOrEmail || '',
-              name: data.name || data.usernameOrEmail || 'Member',
-              registeredAt: data.registeredAt || new Date().toISOString(),
-              lastLogin: data.lastLogin || data.registeredAt || new Date().toISOString(),
-              loginCount: data.loginCount || 1,
-              source: data.source || 'registration',
-              isAdmin: Boolean(data.isAdmin || isChiefAdminEmail(data.email || data.usernameOrEmail)),
-              device: data.device || 'Desktop',
-              browser: data.browser || 'Browser',
-              location: data.location || 'United States',
-            });
-          });
-        }
-      } catch (fsErr) {}
-
-      // 3. Fallback to local accounts
-      const localAccs = getRegisteredAccounts();
-      const localMembers: RegisteredMemberRecord[] = localAccs.map((acc, idx) => ({
-        id: `usr_local_${idx}_${acc.usernameOrEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        usernameOrEmail: acc.usernameOrEmail,
-        email: acc.usernameOrEmail.includes('@') ? acc.usernameOrEmail : '',
-        name: acc.name || acc.usernameOrEmail,
-        registeredAt: acc.createdAt || new Date().toISOString(),
-        lastLogin: acc.createdAt || new Date().toISOString(),
-        loginCount: 1,
-        source: 'registration',
-        isAdmin: Boolean(acc.isAdmin || isChiefAdminEmail(acc.usernameOrEmail)),
-        device: 'Desktop',
-        browser: 'Chrome',
-        location: 'United States',
-      }));
-
-      // Merge and deduplicate
-      const map = new Map<string, RegisteredMemberRecord>();
-      [...firestoreMembers, ...serverMembers, ...localMembers].forEach((m) => {
-        const key = (m.email || m.usernameOrEmail || '').toLowerCase();
-        if (key && !map.has(key)) {
-          map.set(key, m);
-        }
+      const firestoreMembers: RegisteredMemberRecord[] = [];
+      const snap = await getDocs(collection(db, 'registered_users'));
+      snap.forEach((d) => {
+        const data = d.data();
+        firestoreMembers.push({
+          id: data.id || d.id,
+          usernameOrEmail: data.usernameOrEmail || data.email || d.id,
+          email: data.email || data.usernameOrEmail || '',
+          name: data.name || data.usernameOrEmail || 'Member',
+          registeredAt: data.registeredAt || data.lastLogin || new Date().toISOString(),
+          lastLogin: data.lastLogin || data.registeredAt || new Date().toISOString(),
+          loginCount: data.loginCount || 1,
+          source: data.source || 'registration',
+          isAdmin: Boolean(data.isAdmin || isChiefAdminEmail(data.email || data.usernameOrEmail)),
+          device: data.device || 'Desktop',
+          browser: data.browser || 'Browser',
+          location: data.location || 'United States',
+        });
       });
 
-      const merged = Array.from(map.values()).sort(
+      const sorted = firestoreMembers.sort(
         (a, b) => new Date(b.lastLogin || b.registeredAt).getTime() - new Date(a.lastLogin || a.registeredAt).getTime()
       );
-      setRegisteredMembers(merged);
+      setRegisteredMembers(sorted);
     } catch (e) {
       console.warn('Error fetching registered members:', e);
     } finally {
@@ -370,6 +305,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Admin Team & Roles state
   const [adminMembers, setAdminMembers] = useState<AdminMember[]>([]);
+  const [communityReports, setCommunityReports] = useState<
+    { id: string; postId: string; reportedBy: string; reason: string; createdAt: string; post?: CommunityPost | null }[]
+  >([]);
+  const openReportCount = communityReports.length;
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [adminActionMsg, setAdminActionMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [confirmRemoveEmail, setConfirmRemoveEmail] = useState<string | null>(null);
@@ -381,6 +320,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [manualNotes, setManualNotes] = useState('');
   const [manualImage, setManualImage] = useState('');
   const [manualSuccess, setManualSuccess] = useState<string | null>(null);
+  const [isDraftingManual, setIsDraftingManual] = useState(false);
 
   // Stories Management State
   const [storySearch, setStorySearch] = useState('');
@@ -396,46 +336,94 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [githubDispatchMsg, setGithubDispatchMsg] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
 
+  // Admin roster now comes from Firestore's `admins` collection, which only
+  // the Cloud Functions (grantAdminClaim / syncChiefAdminClaim) can write —
+  // this is a real, server-verified list, not a client-side one.
+  const fetchAdminRoster = async () => {
+    try {
+      const snap = await getDocs(collection(db, 'admins'));
+      const roster: AdminMember[] = snap.docs.map((d) => {
+        const data = d.data() as any;
+        return {
+          email: data.email || '',
+          name: data.name,
+          addedBy: data.addedBy || 'System',
+          addedAt: data.addedAt?.toDate ? data.addedAt.toDate().toISOString() : data.addedAt || new Date().toISOString(),
+          isChief: Boolean(data.isChief),
+        };
+      });
+      setAdminMembers(roster);
+    } catch (err) {
+      console.warn('Could not load admin roster:', err);
+    }
+  };
+
+  // Open reports against Community posts (see src/utils/community.ts
+  // `reportPost`). Each report is joined with the post it's about so the
+  // moderator can see what was flagged without a second click.
+  const fetchCommunityReports = async () => {
+    try {
+      const q = query(collection(db, 'reports'), orderBy('createdAt', 'desc'), fsLimit(100));
+      const snap = await getDocs(q);
+      const reports = await Promise.all(
+        snap.docs.map(async (d) => {
+          const data = d.data() as any;
+          let post: CommunityPost | null = null;
+          try {
+            const postSnap = await getDoc(doc(db, 'posts', data.postId));
+            post = postSnap.exists() ? ({ id: postSnap.id, ...postSnap.data() } as CommunityPost) : null;
+          } catch {
+            // post may already be deleted
+          }
+          return {
+            id: d.id,
+            postId: data.postId,
+            reportedBy: data.reportedBy,
+            reason: data.reason || '',
+            createdAt: data.createdAt || new Date().toISOString(),
+            post,
+          };
+        })
+      );
+      setCommunityReports(reports);
+    } catch (err) {
+      console.warn('Could not load community reports:', err);
+    }
+  };
+
+  const handleDismissReport = async (reportId: string) => {
+    try {
+      await deleteDoc(doc(db, 'reports', reportId));
+      setCommunityReports((prev) => prev.filter((r) => r.id !== reportId));
+    } catch (err) {
+      console.warn('Could not dismiss report:', err);
+    }
+  };
+
+  const handleRemoveReportedPost = async (reportId: string, postId: string) => {
+    if (!confirm('Delete this post? This also dismisses the report.')) return;
+    try {
+      await deleteCommunityPost(postId);
+      await deleteDoc(doc(db, 'reports', reportId));
+      setCommunityReports((prev) => prev.filter((r) => r.id !== reportId));
+    } catch (err) {
+      console.warn('Could not remove reported post:', err);
+    }
+  };
+
   useEffect(() => {
     if (isAuthorized) {
       setSubscribers(getSubscribers());
-      setAdminMembers(getAdminMembers(currentUser?.email));
+      fetchAdminRoster();
+      fetchCommunityReports();
       try {
-        setRepoInput(localStorage.getItem('r') || 'Elighty01/Viralhoods');
-        setTokenInput(localStorage.getItem('k') || '');
+        setRepoInput(localStorage.getItem('viralhoods_gh_repo') || 'Elighty01/Viralhoods');
+        setTokenInput(sessionStorage.getItem('viralhoods_gh_token') || '');
       } catch {
         // ignore
       }
     }
   }, [isAuthorized, currentUser?.email, stealthMode]);
-
-  // Handle password/username unlock for admin - STRICT SECURITY
-  const handlePasswordUnlock = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanUser = adminUsernameInput.trim().toLowerCase();
-    const cleanPass = adminPasswordInput.trim();
-
-    // Check if entered credentials match Chief Admin credentials strictly
-    if (!isChiefAdminEmail(cleanUser)) {
-      setPasswordError('Access Denied: Past administrators have been permanently revoked. Only the Chief Administrator (tobionlyn@gmail.com) has authority.');
-      return;
-    }
-
-    if (cleanPass === ADMIN_MASTER_PASSWORD || verifyAdminPassword(cleanPass)) {
-      setPasswordError('');
-      const user = setCurrentUser(
-        CHIEF_ADMIN_EMAIL,
-        'Chief Administrator',
-        true
-      );
-      if (onAuthorizeAdmin) {
-        onAuthorizeAdmin(user);
-      }
-      setAdminPasswordInput('');
-    } else {
-      setPasswordError('Invalid credentials. Access restricted exclusively to Chief Administrator.');
-    }
-  };
 
   // Full Website Statistics calculations
   const websiteStats = useMemo(() => {
@@ -510,198 +498,133 @@ export const AdminView: React.FC<AdminViewProps> = ({
     };
   }, [allStories, subscribers, analyticsData]);
 
-  // Only Chief Admin can add a member as admin
+  // Only Chief Admin can add a member as admin. This calls a Cloud Function
+  // that sets a real Firebase custom claim — the appointee must have signed
+  // in to Viralhoods at least once already so their account exists.
   const handleAddAdmin = async (emailOrUsername: string) => {
     if (!isChiefAdmin) {
       setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has exclusive authority to appoint administrators.', isError: true });
       return;
     }
-    const res = addAdminMember(emailOrUsername, currentUser?.email || CHIEF_ADMIN_EMAIL);
-    if (res.success) {
-      setAdminActionMsg({ text: res.message, isError: false });
+    try {
+      const grantAdminClaim = httpsCallable(functions, 'grantAdminClaim');
+      const res: any = await grantAdminClaim({ email: emailOrUsername.trim().toLowerCase() });
+      setAdminActionMsg({ text: res.data?.message || `${emailOrUsername} is now an administrator.`, isError: false });
       setNewAdminEmail('');
-      setAdminMembers(getAdminMembers(currentUser?.email));
-      // Sync to Firestore 'admins' collection
-      try {
-        const cleanKey = emailOrUsername.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-        await setDoc(doc(db, 'admins', cleanKey), {
-          email: emailOrUsername.trim().toLowerCase(),
-          role: 'Staff Administrator',
-          addedBy: 'Chief Administrator',
-          isChief: false,
-          addedAt: new Date().toISOString(),
-        }, { merge: true });
-      } catch (err) {
-        console.warn('Firestore admin sync note:', err);
-      }
-    } else {
-      setAdminActionMsg({ text: res.message, isError: true });
+      await fetchAdminRoster();
+    } catch (err: any) {
+      setAdminActionMsg({ text: err?.message || 'Could not appoint this administrator.', isError: true });
     }
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 
-  // Only Chief Admin can remove an appointed admin and completely delete all their history, codes, and tokens
+  // Only Chief Admin can revoke an appointed admin's access.
   const handleRemoveAdmin = async (emailOrUsername: string) => {
     if (!isChiefAdmin) {
       setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has authority to remove administrators.', isError: true });
       return;
     }
-    deleteAdminCompletelyAndPurgeHistory(emailOrUsername);
-    const res = removeAdminMember(emailOrUsername, currentUser?.email || CHIEF_ADMIN_EMAIL);
-    if (res.success) {
-      // Remove from Firestore 'admins' and 'members' collections
-      try {
-        const cleanKey = emailOrUsername.trim().toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-        await deleteDoc(doc(db, 'admins', cleanKey));
-        await deleteDoc(doc(db, 'members', cleanKey));
-      } catch (err) {
-        console.warn('Firestore admin delete note:', err);
-      }
-      setAdminMembers(getAdminMembers(currentUser?.email));
-      setAdminActionMsg({
-        text: `Admin ${emailOrUsername} has been permanently deleted and all their history, codes, and access purged from the system.`,
-        isError: false,
-      });
-    } else {
-      setAdminActionMsg({ text: res.message, isError: true });
+    try {
+      const revokeAdminClaim = httpsCallable(functions, 'revokeAdminClaim');
+      const res: any = await revokeAdminClaim({ email: emailOrUsername.trim().toLowerCase() });
+      setAdminActionMsg({ text: res.data?.message || `${emailOrUsername} is no longer an administrator.`, isError: false });
+      await fetchAdminRoster();
+    } catch (err: any) {
+      setAdminActionMsg({ text: err?.message || 'Could not revoke this administrator.', isError: true });
     }
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 
-  // One-click purge to delete all non-chief admins and their entire histories/codes
+  // One-click: revoke every appointed (non-chief) administrator.
   const handlePurgeAllNonChiefAdmins = async () => {
     if (!isChiefAdmin) return;
-    deleteAdminCompletelyAndPurgeHistory();
+    const revokeAdminClaim = httpsCallable(functions, 'revokeAdminClaim');
+    const nonChief = adminMembers.filter((m) => !m.isChief);
     try {
-      await deleteDoc(doc(db, 'admins', 'viralhoods'));
-      await deleteDoc(doc(db, 'admins', 'yussuftimi'));
-      await deleteDoc(doc(db, 'admins', 'yussuftimi_gmail_com'));
-      await deleteDoc(doc(db, 'members', 'viralhoods'));
-      await deleteDoc(doc(db, 'members', 'yussuftimi'));
-      await deleteDoc(doc(db, 'members', 'yussuftimi_gmail_com'));
-    } catch {
-      // quiet
+      await Promise.all(nonChief.map((m) => revokeAdminClaim({ email: m.email })));
+    } catch (err) {
+      console.warn('Note while revoking some admins:', err);
     }
-    setAdminMembers(getAdminMembers(currentUser?.email));
+    await fetchAdminRoster();
     setAdminActionMsg({
-      text: 'All other admins removed. The Chief Administrator is now the sole authorized administrator in the system.',
+      text: 'All appointed administrators removed. The Chief Administrator is now the sole administrator.',
       isError: false,
     });
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 
   // ⚡ One-Click Automated Scrape & Generate Trending News Now (Resilient against 405)
+  // Runs a REAL scrape (not just a re-fetch of the same file) via the
+  // `triggerNewsScrapeOnDemand` Cloud Function: fresh RSS pulls, real Gemini
+  // paraphrasing, and a dedup + pruning pass, across all 10 sectors plus the
+  // 4 Entertainment Hub sub-pages. Admin-gated server-side, so no GitHub
+  // token is needed for this (see the "Advanced" GitHub dispatch option
+  // below for the separate Pages *deploy* workflow).
   const handleRunScraperNow = async (specificCategory?: Category) => {
     setIsScrapingNow(true);
     setScrapeSuccessMessage(null);
     setScrapeErrorMessage(null);
 
-    const targetCat = specificCategory || (scrapeTargetCategory === 'ALL' ? undefined : scrapeTargetCategory);
-    let result: any = null;
-
-    // Step 1: Attempt POST with category and paraphrasing mode
     try {
-      const response = await fetch('/api/bot/scrape-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category: targetCat,
-          mode: scrapeMode,
-        }),
-      });
-
-      if (response.ok) {
-        result = await response.json();
-      } else if (response.status === 405 || response.status === 404) {
-        // Step 2: Attempt GET fallback
-        const query = targetCat ? `?category=${encodeURIComponent(targetCat)}&mode=${scrapeMode}` : `?mode=${scrapeMode}`;
-        const getRes = await fetch(`/api/bot/scrape-generate${query}`, { method: 'GET' });
-        if (getRes.ok) {
-          result = await getRes.json();
-        }
-      }
-    } catch (netErr) {
-      console.warn('Backend scrape endpoint error:', netErr);
-    }
-
-    // If result obtained from server
-    if (result && Array.isArray(result.items) && result.items.length > 0) {
+      const triggerScrape = httpsCallable(functions, 'triggerNewsScrapeOnDemand');
+      const res: any = await triggerScrape();
+      const count = res.data?.count ?? 0;
+      const pruned = res.data?.pruned ?? 0;
       setScrapeSuccessMessage(
-        result.message ||
-        `Successfully scraped & generated news stories! Original wire headlines paraphrased and verified images attached.`
+        `Scrape complete: ${count} ${count === 1 ? 'story' : 'stories'} added or refreshed across all 10 sectors + 4 Entertainment sub-pages` +
+          (pruned > 0 ? `, ${pruned} stale/duplicate ${pruned === 1 ? 'story' : 'stories'} cleaned up.` : '.')
       );
-      if (Array.isArray(result.newItems) && result.newItems.length > 0) {
-        setRecentlyScrapedItems(result.newItems.slice(0, 10));
-      } else {
-        setRecentlyScrapedItems(result.items.slice(0, 10));
-      }
-
-      for (const item of (result.newItems || result.items.slice(0, 20))) {
-        try {
-          await setDoc(doc(db, 'stories', item.id), item, { merge: true });
-        } catch (fsErr) {
-          console.warn('Note syncing story to Firestore:', fsErr);
-        }
-      }
-
       await onRefreshData();
       await fetchBotDiagnostics();
-      setIsScrapingNow(false);
-      return;
-    }
-
-    // Step 3: Graceful client-side fallback to avoid breaking the UX
-    try {
-      let fallbackRes = await fetch('./data/news.json?t=' + Date.now());
-      if (!fallbackRes.ok) {
-        fallbackRes = await fetch('/data/news.json?t=' + Date.now());
-      }
-      if (!fallbackRes.ok) {
-        fallbackRes = await fetch('data/news.json?t=' + Date.now());
-      }
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        setScrapeSuccessMessage(
-          `Successfully refreshed ${fallbackData.items?.length || 80} latest verified viral news stories across all 10 sectors!`
-        );
-        if (Array.isArray(fallbackData.items)) {
-          setRecentlyScrapedItems(fallbackData.items.slice(0, 10));
-          for (const item of fallbackData.items.slice(0, 20)) {
-            try {
-              await setDoc(doc(db, 'stories', item.id), item, { merge: true });
-            } catch (e) {}
-          }
-        }
-        await onRefreshData();
-        await fetchBotDiagnostics();
-      } else {
-        setScrapeSuccessMessage(
-          'Automated news scraper dispatched! Fresh viral stories are updating across all sectors.'
-        );
-        await onRefreshData();
-      }
     } catch (err: any) {
-      console.warn('Scrape fallback info:', err);
-      setScrapeSuccessMessage(
-        'Automated news scraper dispatched! Fresh viral stories are updating across all sectors.'
+      console.warn('On-demand scrape error:', err);
+      setScrapeErrorMessage(
+        err?.code === 'functions/permission-denied'
+          ? 'Only an administrator can trigger a manual scrape.'
+          : err?.code === 'functions/failed-precondition'
+          ? 'The scraper is not fully configured yet (missing GEMINI_API_KEY on the Cloud Function). It will still run with offline paraphrasing.'
+          : 'Could not reach the scraper function. It may still be deploying, or GEMINI_API_KEY may not be set — check the Firebase console.'
       );
-      await onRefreshData();
     } finally {
       setIsScrapingNow(false);
     }
   };
 
-  // Handle Manual Story Creation (Optional)
-  const handleManualStorySubmit = (e: React.FormEvent) => {
+  // Handle Manual Story Creation. Tries real Gemini-drafted content via the
+  // `generateArticleDraft` Cloud Function first (much better quality than
+  // the offline template), and falls back to the local template generator
+  // if that's unavailable — same try-real-then-fall-back pattern as the
+  // scraper itself.
+  const handleManualStorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualTopic.trim()) return;
+    setIsDraftingManual(true);
 
-    const newStory = generateOriginalStory({
+    let newStory = generateOriginalStory({
       topic: manualTopic,
       category: manualCat,
       rawNotes: manualNotes,
       imageUrl: manualImage,
     });
+
+    try {
+      const draftFn = httpsCallable(functions, 'generateArticleDraft');
+      const res: any = await draftFn({ topic: manualTopic, category: manualCat, rawNotes: manualNotes });
+      const draft = res.data;
+      if (draft?.content?.length) {
+        newStory = {
+          ...newStory,
+          summary: draft.summary || newStory.summary,
+          keyTakeaways: draft.keyTakeaways?.length ? draft.keyTakeaways : newStory.keyTakeaways,
+          content: draft.content,
+          whyItMatters: draft.whyItMatters || newStory.whyItMatters,
+          whatNext: draft.whatNext || newStory.whatNext,
+        };
+      }
+    } catch (err) {
+      console.warn('AI drafting unavailable, using offline template:', err);
+    }
+    setIsDraftingManual(false);
 
     saveCustomStory(newStory);
     onAddStory(newStory);
@@ -743,8 +666,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
 
     try {
-      localStorage.setItem('r', cleanRepo);
-      localStorage.setItem('k', token);
+      // Repo name isn't sensitive and is kept for convenience; the PAT is
+      // kept in sessionStorage instead of localStorage so it's cleared when
+      // this tab closes rather than lingering on the device indefinitely.
+      localStorage.setItem('viralhoods_gh_repo', cleanRepo);
+      sessionStorage.setItem('viralhoods_gh_token', token);
     } catch {
       // ignore
     }
@@ -788,6 +714,11 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Discreet Password Gate (Zero personal email shown!)
   if (!isAuthorized) {
+    // Real authorization gate: admin status is a Firebase custom claim,
+    // verified server-side (see firebase.ts `refreshAdminStatus` and
+    // functions/src/index.ts `syncChiefAdminClaim`). There is no password
+    // to type here anymore — sign in with the account that holds the claim.
+    const notSignedIn = !currentUser;
     return (
       <main className="w admin-container" style={{ padding: '60px 16px' }}>
         <div
@@ -823,77 +754,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </h1>
 
           <p style={{ color: 'var(--fg-muted)', fontSize: '0.92rem', lineHeight: 1.5, margin: '0 0 20px' }}>
-            Enter your administrator credentials to unlock the Viralhoods management console and website statistics.
+            {notSignedIn
+              ? 'Sign in with your administrator account to unlock the Viralhoods management console and website statistics.'
+              : `You're signed in as ${currentUser?.email}, but this account doesn't have administrator access.`}
           </p>
 
-          <form onSubmit={handlePasswordUnlock}>
-            <div className="form-group" style={{ textAlign: 'left', marginBottom: '14px' }}>
-              <label htmlFor="admin-username" style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
-                Admin Username
-              </label>
-              <input
-                id="admin-username"
-                type="text"
-                className="form-input"
-                placeholder="Enter admin username or email"
-                autoComplete="off"
-                required
-                value={adminUsernameInput}
-                onChange={(e) => setAdminUsernameInput(e.target.value)}
-              />
-            </div>
+          <div
+            style={{
+              padding: '10px 12px',
+              background: 'var(--bg-subtle)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-sm)',
+              marginBottom: '20px',
+              fontSize: '0.8rem',
+              color: 'var(--fg-muted)',
+              textAlign: 'left',
+            }}
+          >
+            🔒 <strong>Real server-side security:</strong> Administrator access is a Firebase account claim, checked by Firestore's own security rules — not a password stored in the app.
+          </div>
 
-            <div className="form-group" style={{ textAlign: 'left', marginBottom: '16px' }}>
-              <label htmlFor="admin-key" style={{ display: 'block', fontSize: '0.84rem', fontWeight: 700, marginBottom: '6px' }}>
-                Admin Password
-              </label>
-              <input
-                id="admin-key"
-                type="password"
-                className="form-input"
-                placeholder="••••••••••••"
-                required
-                value={adminPasswordInput}
-                onChange={(e) => setAdminPasswordInput(e.target.value)}
-                autoFocus
-              />
-            </div>
-
-            <div
-              style={{
-                padding: '10px 12px',
-                background: 'var(--bg-subtle)',
-                border: '1px solid var(--line)',
-                borderRadius: 'var(--radius-sm)',
-                marginBottom: '16px',
-                fontSize: '0.8rem',
-                color: 'var(--fg-muted)',
-                textAlign: 'left',
-              }}
-            >
-              🔒 <strong>Strict Chief Security:</strong> Administrative console access is restricted exclusively to verified Chief Administrator credentials. All past staff and non-chief accounts are blocked.
-            </div>
-
-            {passwordError && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  marginBottom: '16px',
-                  fontSize: '0.86rem',
-                  fontWeight: 600,
-                  background: '#fee2e2',
-                  color: '#b91c1c',
-                }}
-              >
-                {passwordError}
-              </div>
-            )}
-
-            <button type="submit" className="btn-primary" style={{ width: '100%', padding: '11px', fontWeight: 700 }}>
-              Unlock Console & Stats
-            </button>
-          </form>
+          <button
+            type="button"
+            className="btn-primary"
+            style={{ width: '100%', padding: '11px', fontWeight: 700 }}
+            onClick={onOpenAuth}
+          >
+            {notSignedIn ? 'Sign In' : 'Switch Account'}
+          </button>
         </div>
       </main>
     );
@@ -1099,6 +987,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
           }}
         >
           <UserCheck size={16} style={{ color: '#10b981' }} /> User Database ({registeredMembers.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('community')}
+          style={{
+            padding: '12px 18px',
+            border: 'none',
+            background: 'transparent',
+            borderBottom: activeTab === 'community' ? '2px solid var(--blue)' : '2px solid transparent',
+            color: activeTab === 'community' ? 'var(--fg)' : 'var(--fg-muted)',
+            fontWeight: activeTab === 'community' ? 800 : 600,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.94rem',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Flag size={16} style={{ color: openReportCount > 0 ? '#dc2626' : undefined }} /> Community Reports{openReportCount > 0 ? ` (${openReportCount})` : ''}
         </button>
 
         <button
@@ -2183,90 +2092,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </div>
             </div>
 
-            {/* Target Sector Selector */}
-            <div style={{ marginBottom: '18px' }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--fg-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                1. Select Sector Scope
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => setScrapeTargetCategory('ALL')}
-                  style={{
-                    padding: '6px 14px',
-                    borderRadius: '20px',
-                    border: '1px solid',
-                    borderColor: scrapeTargetCategory === 'ALL' ? 'var(--blue)' : 'var(--line)',
-                    background: scrapeTargetCategory === 'ALL' ? 'var(--blue-tint)' : 'var(--bg-subtle)',
-                    color: scrapeTargetCategory === 'ALL' ? 'var(--blue)' : 'var(--fg)',
-                    fontWeight: 700,
-                    fontSize: '0.82rem',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                  }}
-                >
-                  🌐 All 10 Sectors (Full Spectrum)
-                </button>
-                {CATEGORIES.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setScrapeTargetCategory(cat)}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '20px',
-                      border: '1px solid',
-                      borderColor: scrapeTargetCategory === cat ? 'var(--blue)' : 'var(--line)',
-                      background: scrapeTargetCategory === cat ? 'var(--blue-tint)' : 'var(--bg-subtle)',
-                      color: scrapeTargetCategory === cat ? 'var(--blue)' : 'var(--fg-muted)',
-                      fontWeight: scrapeTargetCategory === cat ? 800 : 600,
-                      fontSize: '0.82rem',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* AI Paraphrasing Mode Selector */}
-            <div style={{ marginBottom: '22px' }}>
-              <div style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--fg-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                2. Select Paraphrasing & Rewriting Style
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
-                {[
-                  { id: 'investigative', label: '🔍 Investigative Analysis', desc: 'In-depth institutional context & verified takeaways' },
-                  { id: 'breaking', label: '🚨 Breaking Viral Pulse', desc: 'High-velocity urgency alerts with modified wire headlines' },
-                  { id: 'executive', label: '📊 Executive Briefing', desc: 'Strategic C-suite takeaways & macroeconomic impact' },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setScrapeMode(m.id as any)}
-                    style={{
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid',
-                      borderColor: scrapeMode === m.id ? 'var(--blue)' : 'var(--line)',
-                      background: scrapeMode === m.id ? 'var(--blue-tint)' : 'var(--bg-card)',
-                      color: scrapeMode === m.id ? 'var(--blue)' : 'var(--fg)',
-                      fontWeight: 700,
-                      fontSize: '0.84rem',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <div>{m.label}</div>
-                    <div style={{ fontSize: '0.74rem', color: 'var(--fg-muted)', fontWeight: 500, marginTop: '2px' }}>
-                      {m.desc}
-                    </div>
-                  </button>
-                ))}
-              </div>
+            {/* Scope note — the on-demand scraper always runs the full
+                engine (all 10 sectors + the 4 Entertainment sub-pages) with
+                real Gemini paraphrasing, cross-run dedup, and pruning of
+                stale stories. There's no partial "category only" mode
+                server-side, so there's nothing to select here. */}
+            <div
+              style={{
+                marginBottom: '18px',
+                padding: '12px 14px',
+                background: 'var(--bg-subtle)',
+                border: '1px solid var(--line)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '0.84rem',
+                color: 'var(--fg-muted)',
+                lineHeight: 1.5,
+              }}
+            >
+              Every run covers all 10 sectors plus the Entertainment Hub's Videos, Music, Movies and Novels
+              sub-pages — rewriting headlines with Gemini, skipping near-duplicate stories, and clearing out
+              anything older than 45 days or beyond 150 stories per sector.
             </div>
 
             {/* Action Buttons & Diagnostics Trigger */}
@@ -2287,11 +2132,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 }}
               >
                 <Zap size={18} className={isScrapingNow ? 'spin-icon' : ''} />
-                {isScrapingNow
-                  ? `Scraping & Paraphrasing ${scrapeTargetCategory === 'ALL' ? 'All Sectors' : scrapeTargetCategory}...`
-                  : scrapeTargetCategory === 'ALL'
-                  ? '⚡ Scrape & Generate All 10 Sectors'
-                  : `⚡ Scrape Trending ${scrapeTargetCategory} News`}
+                {isScrapingNow ? 'Scraping & paraphrasing all sectors...' : '⚡ Run Full Scrape Now'}
               </button>
 
               <button
@@ -2317,9 +2158,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
               </button>
 
               <span style={{ fontSize: '0.84rem', color: 'var(--fg-muted)' }}>
-                {scrapeTargetCategory === 'ALL'
-                  ? 'Gathers fresh stories, rewrites original headlines, and attaches verified high-res pictures'
-                  : `Gathers top ${scrapeTargetCategory} news and merges seamlessly without dropping other sectors`}
+                Runs server-side via Cloud Functions — no GitHub token needed for this.
               </span>
             </div>
 
@@ -2452,6 +2291,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                       type="button"
                       onClick={() => handleRunScraperNow(cat)}
                       disabled={isScrapingNow}
+                      title="Runs a full scrape across all sectors — there's no single-category scrape on the server"
                       style={{
                         padding: '4px 8px',
                         background: 'transparent',
@@ -2467,7 +2307,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         gap: '4px',
                       }}
                     >
-                      <Zap size={12} /> Scrape {cat}
+                      <Zap size={12} /> Run Full Scrape
                     </button>
                   </div>
                 );
@@ -2655,8 +2495,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </div>
                   )}
 
-                  <button type="submit" className="btn-primary" style={{ padding: '10px 20px' }}>
-                    Publish Story
+                  <button type="submit" className="btn-primary" disabled={isDraftingManual} style={{ padding: '10px 20px' }}>
+                    {isDraftingManual ? 'Drafting with AI...' : 'Publish Story'}
                   </button>
                 </form>
               </div>
@@ -3187,6 +3027,112 @@ export const AdminView: React.FC<AdminViewProps> = ({
         </div>
       )}
 
+      {/* TAB: COMMUNITY REPORTS */}
+      {activeTab === 'community' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: '0 0 4px' }}>Community Reports</h2>
+            <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: 0 }}>
+              Posts other readers have flagged from the Community board. Dismiss a report if the post is fine, or
+              remove the post if it isn't — removing also dismisses the report.
+            </p>
+          </div>
+
+          {communityReports.length === 0 ? (
+            <div
+              style={{
+                padding: '50px 20px',
+                textAlign: 'center',
+                color: 'var(--fg-muted)',
+                border: '1px dashed var(--line)',
+                borderRadius: 'var(--radius-lg)',
+              }}
+            >
+              <Flag size={28} style={{ margin: '0 auto 10px', opacity: 0.5 }} />
+              <p style={{ margin: 0 }}>No open reports. The Community board is clean.</p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {communityReports.map((report) => (
+                <div
+                  key={report.id}
+                  style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '16px',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0 }}>
+                      {report.post ? (
+                        <>
+                          <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{report.post.title}</div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', marginTop: '2px' }}>
+                            by @{report.post.authorUsername} · {report.post.type} post
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontStyle: 'italic', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+                          Post already removed.
+                        </div>
+                      )}
+                      <div style={{ fontSize: '0.82rem', color: 'var(--fg)', marginTop: '8px', background: 'var(--bg-subtle)', padding: '8px 10px', borderRadius: 'var(--radius-sm)' }}>
+                        "{report.reason}"
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--fg-muted)', marginTop: '6px' }}>
+                        Reported {new Date(report.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                      {report.post && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveReportedPost(report.id, report.postId)}
+                          style={{
+                            padding: '8px 14px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid #fca5a5',
+                            background: '#fee2e2',
+                            color: '#b91c1c',
+                            fontWeight: 700,
+                            fontSize: '0.82rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Trash2 size={14} /> Remove Post
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDismissReport(report.id)}
+                        style={{
+                          padding: '8px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--line)',
+                          background: 'var(--bg-subtle)',
+                          color: 'var(--fg)',
+                          fontWeight: 700,
+                          fontSize: '0.82rem',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* TAB: ADMIN ROLES & TEAM */}
       {activeTab === 'roles' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -3302,7 +3248,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     onClick={() => {
                       setStealthMode('hidden');
                       setChiefAdminStealthMode('hidden');
-                      setAdminMembers(getAdminMembers(currentUser?.email));
+                      fetchAdminRoster();
                     }}
                     style={{
                       padding: '6px 14px',
@@ -3325,7 +3271,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     onClick={() => {
                       setStealthMode('masked');
                       setChiefAdminStealthMode('masked');
-                      setAdminMembers(getAdminMembers(currentUser?.email));
+                      fetchAdminRoster();
                     }}
                     style={{
                       padding: '6px 14px',
@@ -3699,10 +3645,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
 
           <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 12px' }}>
-            Trigger Remote GitHub Actions Workflow (Optional)
+            Trigger Remote GitHub Actions Workflow (Advanced)
           </h3>
-          <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: '0 0 16px' }}>
-            If you want to dispatch the GitHub Action workflow immediately from your browser:
+          <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: '0 0 10px' }}>
+            For a news scrape, use the <strong>"⚡ Run Full Scrape Now"</strong> button on the Bot tab instead — it
+            runs server-side and needs no token. This section is for dispatching the GitHub Pages{' '}
+            <strong>deploy</strong> workflow, which does need a token because it has to call the GitHub API directly.
+          </p>
+          <p style={{ color: 'var(--fg-muted)', fontSize: '0.8rem', margin: '0 0 16px' }}>
+            Your token is kept only for this browser tab (it clears when you close it) and is never sent anywhere
+            except the GitHub API. Use a fine-grained token scoped to just this repository's Actions permission.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>

@@ -259,7 +259,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                   }}
                 >
                   <img
-                    src="/logo.svg"
+                    src={`${import.meta.env.BASE_URL}logo.svg`}
                     alt="Viralhoods Real Logo"
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
@@ -341,7 +341,7 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                 }}
               >
                 <img
-                  src="/logo.svg"
+                  src={`${import.meta.env.BASE_URL}logo.svg`}
                   alt="Viralhoods Real Logo"
                   style={{ width: '120px', height: '86px', filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))' }}
                 />

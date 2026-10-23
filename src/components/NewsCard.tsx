@@ -93,7 +93,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           <div className="card-gradient-fallback" style={{ background: fallbackBackground }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
               <img
-                src="/logo.svg"
+                src={`${import.meta.env.BASE_URL}logo.svg`}
                 alt="Viralhoods Real Logo"
                 style={{ width: '48px', height: '34px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
               />

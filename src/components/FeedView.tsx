@@ -2,7 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { NewsItem, User, UnifiedSearchResponse } from '../types';
 import { NewsCard, formatAgo } from './NewsCard';
 import { NewsletterBanner } from './NewsletterBanner';
-import { EntertainmentHub, EntertainmentSubpage } from './EntertainmentHub';
+import { lazy, Suspense } from 'react';
+import type { EntertainmentSubpage } from './EntertainmentHub';
+
+// Lazy: this is a large (~1,800 line) component only needed when the
+// reader actually clicks into the Entertainment sector, not on every feed
+// load.
+const EntertainmentHub = lazy(() => import('./EntertainmentHub').then((m) => ({ default: m.EntertainmentHub })));
 import { executeUnifiedSearch } from '../services/searchService';
 import {
   Search,
@@ -77,6 +83,18 @@ export const FeedView: React.FC<FeedViewProps> = ({
       (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(normalizedQuery);
     return matchesCategory && matchesQuery;
   });
+
+  // Pagination for the normal (non-search) browsing view. Without this the
+  // feed rendered every matching story at once — fine with a few dozen
+  // items, but the catalog now grows continuously (see the scraper's
+  // pruning rule, which still allows up to 150 stories per sector), so an
+  // unbounded render would get slower over time. Resets whenever the
+  // category, bookmarks-only toggle, or search query changes.
+  const PAGE_SIZE = 24;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [category, showOnlyBookmarks, normalizedQuery]);
 
   const updatedText = updatedTime ? `Updated ${formatAgo(updatedTime)}` : 'Live Feed Active';
 
@@ -771,16 +789,18 @@ export const FeedView: React.FC<FeedViewProps> = ({
         /* STANDARD VIRALHOODS FEED VIEW */
         category === 'Entertainment' && !showOnlyBookmarks ? (
           <>
-            <EntertainmentHub
-              currentSubpage={entertainmentSubpage}
-              onSelectSubpage={onSelectEntertainmentSubpage || (() => {})}
-              entertainmentStories={filteredItems}
-              bookmarks={bookmarks}
-              onToggleBookmark={onToggleBookmark}
-              onOpenStory={onOpenStory}
-              currentUser={currentUser || null}
-              onOpenAuth={onOpenAuth || (() => {})}
-            />
+            <Suspense fallback={<div style={{ padding: '60px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading Entertainment Hub...</div>}>
+              <EntertainmentHub
+                currentSubpage={entertainmentSubpage}
+                onSelectSubpage={onSelectEntertainmentSubpage || (() => {})}
+                entertainmentStories={filteredItems}
+                bookmarks={bookmarks}
+                onToggleBookmark={onToggleBookmark}
+                onOpenStory={onOpenStory}
+                currentUser={currentUser || null}
+                onOpenAuth={onOpenAuth || (() => {})}
+              />
+            </Suspense>
             <NewsletterBanner onSubscribe={onSubscribe} />
           </>
         ) : (
@@ -855,10 +875,10 @@ export const FeedView: React.FC<FeedViewProps> = ({
                     {/* Newsletter In-Feed Banner */}
                     <NewsletterBanner onSubscribe={onSubscribe} />
 
-                    {/* Subsequent Stories Grid */}
+                    {/* Subsequent Stories Grid — paginated, see visibleCount above */}
                     {filteredItems.length > 1 && (
                       <div className="grid">
-                        {filteredItems.slice(1).map((item) => (
+                        {filteredItems.slice(1, visibleCount).map((item) => (
                           <NewsCard
                             key={item.id}
                             item={item}
@@ -868,6 +888,19 @@ export const FeedView: React.FC<FeedViewProps> = ({
                             onOpenStory={onOpenStory}
                           />
                         ))}
+                      </div>
+                    )}
+
+                    {filteredItems.length > visibleCount && (
+                      <div style={{ display: 'flex', justifyContent: 'center', margin: '28px 0 8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                          className="btn-outline"
+                          style={{ padding: '10px 24px', fontWeight: 700, fontSize: '0.9rem' }}
+                        >
+                          Load More ({filteredItems.length - visibleCount} remaining)
+                        </button>
                       </div>
                     )}
                   </>

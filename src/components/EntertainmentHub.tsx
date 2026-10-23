@@ -208,6 +208,16 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
     });
   }, [entertainmentStories, newsTopicFilter]);
 
+  // Real bot-scraped coverage for the current Videos/Music/Movies/Novels
+  // sub-page (tagged by the scraper's `subSector` field — see
+  // scripts/scrape.ts and functions/src/index.ts). This is what keeps these
+  // sub-pages growing with fresh content on their own, instead of only ever
+  // showing the fixed curated showcase below.
+  const subSectorCoverage = useMemo(() => {
+    if (currentSubpage === 'news') return [];
+    return entertainmentStories.filter((story) => story.subSector === currentSubpage);
+  }, [entertainmentStories, currentSubpage]);
+
   // Audio preview handler
   const handleTogglePlayAudio = (item: EntertainmentDownloadItem) => {
     if (!item.downloadUrl) return;
@@ -229,23 +239,23 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
     }
   };
 
-  // Copy download link
+  // Copy link
   const handleCopyLink = (url: string, title: string) => {
     navigator.clipboard.writeText(url);
     setCopiedUrl(url);
-    setDownloadSuccessToast(`Download link for "${title}" copied to clipboard!`);
+    setDownloadSuccessToast(`Link for "${title}" copied to clipboard!`);
     setTimeout(() => {
       setCopiedUrl(null);
       setDownloadSuccessToast(null);
     }, 3500);
   };
 
-  // Handle direct download trigger to real site
+  // Opens the official source (YouTube, Spotify, JustWatch, WorldCat/Open
+  // Library) in a new tab. Viralhoods never hosts or mirrors media itself.
   const handleInitiateDownload = (item: EntertainmentDownloadItem, mirror?: DownloadMirror) => {
     const targetUrl = mirror ? mirror.url : item.downloadUrl;
-    setDownloadSuccessToast(`Opening external download source for "${item.title}". Note: Download site is at client's own risk.`);
-    
-    // Open the real site in a new tab safely
+    setDownloadSuccessToast(`Opening the official source for "${item.title}"...`);
+
     window.open(targetUrl, '_blank', 'noopener,noreferrer');
 
     setTimeout(() => {
@@ -322,10 +332,10 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               <Sparkles size={16} /> Viralhoods Entertainment Portal & Download Center
             </div>
             <h1 style={{ margin: '6px 0 8px', fontSize: '2rem', fontWeight: 900, fontFamily: 'var(--font-heading)', color: '#ffffff', letterSpacing: '-0.02em' }}>
-              Trending Entertainment & Direct Downloads
+              Trending Entertainment Hub
             </h1>
             <p style={{ margin: 0, color: '#cbd5e1', fontSize: '0.96rem', maxWidth: '650px', lineHeight: 1.55 }}>
-              Get verified, high-speed direct download links to the world’s most viral videos, chart-topping music, blockbuster movies & TV series, and bestselling novels.
+              Discover the world's most viral videos, chart-topping music, blockbuster movies & TV series, and bestselling novels — with one-tap links to the official platform for each.
             </p>
           </div>
 
@@ -347,7 +357,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                 borderColor: 'rgba(255, 255, 255, 0.25)',
               }}
             >
-              <FileText size={15} /> Request a Link
+              <FileText size={15} /> Suggest a Topic
             </button>
             <div
               style={{
@@ -561,7 +571,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
         >
           <AlertCircle size={18} color="var(--sun)" style={{ flexShrink: 0 }} />
           <div>
-            <strong>Third-Party Download Mirror Notice:</strong> All media links route to real external public hosting services (such as YTS, TrendyBeatz, SaveFrom, OceanofPDF, and Internet Archive). External downloading is conducted at the client's own discretion and risk.
+            <strong>Official Sources Only:</strong> every link on this page opens the real platform — YouTube, Spotify, YouTube Music, JustWatch, or a library catalog (WorldCat / Open Library) — in a new tab. Viralhoods doesn't host or mirror any media files itself.
           </div>
         </div>
       </div>
@@ -1074,11 +1084,11 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                     </div>
                   )}
 
-                  {/* Inline Audio Player Trigger for Music */}
+                  {/* Open on Spotify, for music cards */}
                   {item.type === 'music' && (
                     <button
                       type="button"
-                      onClick={() => handleTogglePlayAudio(item)}
+                      onClick={() => handleInitiateDownload(item)}
                       style={{
                         position: 'absolute',
                         bottom: '12px',
@@ -1095,9 +1105,9 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                         justifyContent: 'center',
                         boxShadow: '0 4px 10px rgba(0,0,0,0.3)',
                       }}
-                      title={playingAudioId === item.id ? 'Pause Preview' : 'Play Audio Preview'}
+                      title="Listen on Spotify"
                     >
-                      {playingAudioId === item.id ? <Pause size={18} /> : <Play size={18} style={{ marginLeft: '2px' }} />}
+                      <Play size={18} style={{ marginLeft: '2px' }} />
                     </button>
                   )}
 
@@ -1192,10 +1202,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                         gap: '3px',
                       }}
                     >
-                      <ShieldCheck size={12} /> Verified Clean
-                    </span>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--fg-muted)', marginLeft: 'auto' }}>
-                      {item.downloadsCount.toLocaleString()} dl
+                      <ShieldCheck size={12} /> Official Source
                     </span>
                   </div>
 
@@ -1221,7 +1228,14 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                         transition: 'background 0.15s ease',
                       }}
                     >
-                      <Download size={15} /> Download ({item.fileSize})
+                      <Download size={15} />{' '}
+                      {item.type === 'video'
+                        ? 'Watch on YouTube'
+                        : item.type === 'music'
+                        ? 'Listen'
+                        : item.type === 'movie'
+                        ? 'Where to Stream'
+                        : 'Find This Book'}
                     </button>
 
                     {(item.trailerYoutubeId || item.type === 'video') && (
@@ -1307,6 +1321,27 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               <p style={{ margin: 0, fontSize: '0.9rem' }}>
                 Try refining your search query or choosing another genre filter.
               </p>
+            </div>
+          )}
+
+          {/* Bot-scraped coverage for this sub-page — real, continuously
+              updated news articles, not the fixed curated showcase above. */}
+          {subSectorCoverage.length > 0 && (
+            <div style={{ marginTop: '36px' }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <TrendingUp size={17} color="var(--blue)" /> Latest Coverage
+              </h2>
+              <div className="news-grid">
+                {subSectorCoverage.map((story) => (
+                  <NewsCard
+                    key={story.id}
+                    item={story}
+                    isBookmarked={bookmarks.includes(story.id)}
+                    onToggleBookmark={onToggleBookmark}
+                    onOpenStory={onOpenStory}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -1458,7 +1493,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                     gap: '6px',
                   }}
                 >
-                  <Download size={14} /> Download ({activeTrailerItem.fileSize})
+                  <Download size={14} /> Open Official Source
                 </button>
               </div>
             </div>
@@ -1547,15 +1582,15 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
             >
               <ShieldCheck size={20} color="#10b981" />
               <div>
-                <strong style={{ color: '#10b981' }}>VirusTotal Verified Clean</strong>
+                <strong style={{ color: '#10b981' }}>Official & Legitimate Sources Only</strong>
                 <div style={{ color: 'var(--fg-muted)', fontSize: '0.78rem' }}>
-                  0/68 security vendors flagged this file. SHA-256 integrity hash verified.
+                  Every link below goes to the real platform — YouTube, Spotify, JustWatch, or a library catalog.
                 </div>
               </div>
             </div>
 
             <h4 style={{ margin: '0 0 10px', fontSize: '0.9rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Available Download Mirrors
+              Where to Watch, Listen, or Find It
             </h4>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
@@ -1575,9 +1610,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                   <div>
                     <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{mirror.name}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--fg-muted)', display: 'flex', gap: '8px' }}>
-                      <span>Type: {mirror.type}</span>
-                      <span>•</span>
-                      <span style={{ color: 'var(--blue)', fontWeight: 600 }}>Speed: {mirror.speed}</span>
+                      <span style={{ color: 'var(--blue)', fontWeight: 600 }}>{mirror.type}</span>
                     </div>
                   </div>
 
@@ -1620,7 +1653,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                         gap: '4px',
                       }}
                     >
-                      <Download size={13} /> Download
+                      <Download size={13} /> Open
                     </button>
                   </div>
                 </div>
@@ -1628,7 +1661,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
             </div>
 
             <div style={{ textAlign: 'center', fontSize: '0.78rem', color: 'var(--fg-muted)' }}>
-              Offline enjoyment only. Viralhoods verifies all media links for security and safe downloading.
+              These links open the official platform in a new tab — nothing downloads from Viralhoods itself.
             </div>
           </div>
         </div>
@@ -1683,10 +1716,10 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
             </button>
 
             <h3 style={{ margin: '0 0 6px', fontSize: '1.25rem', fontWeight: 800 }}>
-              Request a Download Link
+              Suggest a Topic
             </h3>
             <p style={{ margin: '0 0 20px', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
-              Can’t find a trending video, song, movie/series, or novel? Let our editorial curators find and add a verified direct download mirror.
+              Can't find a trending video, song, movie/series, or novel? Let us know and our editorial team will add it, linked to its official source.
             </p>
 
             {requestSubmitted ? (
@@ -1702,7 +1735,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
                 }}
               >
                 <Check size={24} style={{ margin: '0 auto 8px' }} />
-                Your link request has been submitted! Our automated bot & editorial team will index it shortly.
+                Thanks! Your suggestion has been noted — our editorial team will take a look.
               </div>
             ) : (
               <form onSubmit={handleRequestSubmit}>

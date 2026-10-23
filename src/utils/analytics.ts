@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { collection, doc, setDoc, getDoc, getDocs, query, orderBy, limit, increment } from 'firebase/firestore';
 
 export interface VisitEvent {
   id: string;
@@ -135,23 +135,12 @@ let cachedGeo: { country: string; city: string; countryCode: string } | null = n
 export async function resolveLocation(): Promise<{ country: string; city: string; countryCode: string }> {
   if (cachedGeo) return cachedGeo;
 
-  // Attempt 1: Fetch from internal backend proxy
-  try {
-    const res = await fetch('/api/analytics/geo', { signal: AbortSignal.timeout(2000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.country) {
-        cachedGeo = {
-          country: data.country,
-          city: data.city || 'Metro Area',
-          countryCode: data.countryCode || 'US',
-        };
-        return cachedGeo;
-      }
-    }
-  } catch {}
-
-  // Attempt 2: Intelligent client-side time-zone and locale heuristic
+  // Time-zone/locale heuristic. (This previously tried a `/api/analytics/geo`
+  // backend endpoint first, but nothing in this project serves that route in
+  // production — the GitHub Pages deployment is static — so every single
+  // page view paid for a doomed network request before falling back to
+  // exactly this. Going straight here is faster with no loss of accuracy,
+  // since the fallback was always what actually ran.)
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
     if (tz.includes('London') || tz.includes('Europe/Belfast')) {
@@ -218,21 +207,12 @@ export async function trackPageVisit(
     // 1. Save to local storage cache
     saveEventLocally(event);
 
-    // 2. Post to backend server telemetry store
-    try {
-      fetch('/api/analytics/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(event),
-      }).catch(() => {});
-    } catch {}
-
-    // 3. Save to Firestore collection `analytics_visits`
+    // 2. Save to Firestore collection `analytics_visits`
     try {
       setDoc(doc(db, 'analytics_visits', eventId), event).catch(() => {});
     } catch {}
 
-    // 4. Update aggregate counts in Firestore `system/analytics`
+    // 3. Update aggregate counts in Firestore `system/analytics`
     try {
       updateAggregates(event);
     } catch {}
@@ -261,42 +241,72 @@ export function getLocalVisitEvents(): VisitEvent[] {
   return [];
 }
 
+// Field-safe key: Firestore field names can't contain . $ # [ ] or /, but
+// spaces are fine, so page/country names stay human-readable in the stored
+// document (and match the substring checks fetchAnalyticsData relies on,
+// like `page.includes('Home Feed')`).
+function fieldSafeKey(raw: string): string {
+  return (raw || 'Unknown').replace(/[.$#[\]/]/g, '_');
+}
+
 async function updateAggregates(event: VisitEvent) {
   const summaryRef = doc(db, 'system', 'analytics');
   try {
-    const snap = await getDoc(summaryRef);
-    const existing = snap.exists() ? snap.data() : {};
+    const pageKey = fieldSafeKey(event.page);
+    const countryKey = fieldSafeKey(event.country);
 
-    const pageKey = `page_${event.page.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const countryKey = `country_${event.country.replace(/[^a-zA-Z0-9]/g, '_')}`;
-
+    // Atomic counters (increment()) instead of a read-then-write — the old
+    // version read the doc, added 1 in JS, then wrote it back, which loses
+    // counts under concurrent visits (two tabs reading the same starting
+    // value both write "+1" and one increment is silently dropped).
     await setDoc(
       summaryRef,
       {
-        totalPageviews: (existing.totalPageviews || 0) + 1,
+        totalPageviews: increment(1),
         lastActive: event.timestamp,
-        [pageKey]: (existing[pageKey] || 0) + 1,
-        [countryKey]: (existing[countryKey] || 0) + 1,
+        [`pages.${pageKey}.views`]: increment(1),
+        [`pages.${pageKey}.path`]: event.path,
+        [`pages.${pageKey}.category`]: event.category ?? null,
+        [`countries.${countryKey}.count`]: increment(1),
+        [`countries.${countryKey}.countryCode`]: event.countryCode,
+        [`devices.${event.device}`]: increment(1),
+        [`browsers.${event.browser}`]: increment(1),
+        [`os.${event.os}`]: increment(1),
       },
       { merge: true }
     );
-  } catch {}
+  } catch (err) {
+    console.warn('Analytics aggregate update note:', err);
+  }
 }
 
 // 4. Compute Comprehensive Analytics Data for Admin Dashboard
 export async function fetchAnalyticsData(): Promise<AnalyticsSummary> {
+  // Real persistent aggregates from Firestore `system/analytics` (written by
+  // updateAggregates above on every visit). This previously tried a
+  // `/api/analytics/summary` backend endpoint first — nothing serves that
+  // route in production, so it always failed and fell through to this same
+  // Firestore-backed path anyway; reading Firestore directly skips the
+  // doomed round-trip.
   let serverData: any = null;
-
-  // Try fetching server-side analytics summary first
   try {
-    const res = await fetch('/api/analytics/summary');
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.totalPageviews) {
-        serverData = data;
+    const snap = await getDoc(doc(db, 'system', 'analytics'));
+    if (snap.exists()) {
+      const raw = snap.data() as any;
+      if (raw.totalPageviews) {
+        serverData = {
+          totalPageviews: raw.totalPageviews,
+          pages: raw.pages || {},
+          countries: raw.countries || {},
+          devices: raw.devices || {},
+          browsers: raw.browsers || {},
+          os: raw.os || {},
+        };
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('Analytics summary note:', err);
+  }
 
   // Fetch Firestore recent visits
   let firestoreVisits: VisitEvent[] = [];
@@ -514,31 +524,17 @@ function computeFallbackSummary(visits: VisitEvent[]): AnalyticsSummary {
 export async function resetAnalyticsBaseline(): Promise<{ success: boolean; message: string }> {
   try {
     localStorage.removeItem(LOCAL_ANALYTICS_KEY);
-    const res = await fetch('/api/analytics/reset-baseline', { method: 'POST' });
-    if (res.ok) {
-      return await res.json();
-    }
+    await setDoc(doc(db, 'system', 'analytics'), { totalPageviews: 0, pages: {}, countries: {}, devices: {}, browsers: {}, os: {}, lastActive: new Date().toISOString() });
+    return { success: true, message: 'Analytics baseline reset.' };
   } catch (err: any) {
     console.warn('Reset analytics note:', err);
+    return { success: true, message: 'Local telemetry cache cleared to clean baseline.' };
   }
-  return { success: true, message: 'Local telemetry cache cleared to clean baseline.' };
 }
 
 // Test / Ping page to verify tracking is working in real time
 export async function pingPageForVerification(pageName: string, path: string = '#', category?: string): Promise<any> {
-  // Fire client-side track
   await trackPageVisit(pageName, path, { category });
-  // Fire server-side ping
-  try {
-    const res = await fetch('/api/analytics/ping-page', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ page: pageName, path, category }),
-    });
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch {}
   return { success: true, verified: true, page: pageName };
 }
 
