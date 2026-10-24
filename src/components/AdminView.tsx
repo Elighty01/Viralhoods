@@ -36,7 +36,6 @@ import {
   ExternalLink,
   Eye,
   RefreshCw,
-  PlusCircle,
   CheckCircle,
   AlertCircle,
   Zap,
@@ -84,6 +83,25 @@ import {
   pingPageForVerification,
   resetAnalyticsBaseline,
 } from '../utils/analytics';
+
+// AI Blog Post Generator option lists (Bot tab). Keep `value`s in sync with
+// BLOG_STYLE_PROMPTS / BLOG_LENGTH_PRESETS in functions/src/index.ts — they
+// are passed straight through as the `style` / `length` request fields.
+const BLOG_STYLES: { value: string; label: string; hint: string }[] = [
+  { value: 'news', label: 'News Report', hint: 'Straightforward and factual, most important details first.' },
+  { value: 'investigative', label: 'Investigative Deep-Dive', hint: 'Looks past the headline at causes and context.' },
+  { value: 'opinion', label: 'Opinion & Editorial', hint: 'A clear point of view, written in first person.' },
+  { value: 'explainer', label: 'Explainer', hint: 'Plain language, assumes no prior context.' },
+  { value: 'listicle', label: 'Listicle', hint: 'Numbered points, quick to skim.' },
+  { value: 'feature', label: 'Feature / Narrative', hint: 'A storytelling arc with scene-setting detail.' },
+  { value: 'casual', label: 'Casual & Social', hint: 'Conversational, like explaining it to a friend.' },
+];
+
+const BLOG_LENGTHS: { value: string; label: string; hint: string }[] = [
+  { value: 'short', label: 'Short', hint: '~3 paragraphs, 250-350 words' },
+  { value: 'medium', label: 'Medium', hint: '~5 paragraphs, 500-650 words' },
+  { value: 'long', label: 'Long', hint: '~8 paragraphs, 900-1100 words' },
+];
 
 interface AdminViewProps {
   currentUser: User | null;
@@ -320,14 +338,26 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [adminActionMsg, setAdminActionMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [confirmRemoveEmail, setConfirmRemoveEmail] = useState<string | null>(null);
 
-  // Optional manual article writer accordion
+  // AI Blog Post Generator accordion — generate a full post from a title +
+  // style + length, preview it, then publish. Two steps (Generate →
+  // Publish) rather than one, so a draft can be fixed or discarded before
+  // it goes live.
   const [showManualWriter, setShowManualWriter] = useState(false);
-  const [manualTopic, setManualTopic] = useState('');
-  const [manualCat, setManualCat] = useState<Category>('World');
-  const [manualNotes, setManualNotes] = useState('');
-  const [manualImage, setManualImage] = useState('');
-  const [manualSuccess, setManualSuccess] = useState<string | null>(null);
-  const [isDraftingManual, setIsDraftingManual] = useState(false);
+  const [blogTitle, setBlogTitle] = useState('');
+  const [blogCategory, setBlogCategory] = useState<Category>('World');
+  const [blogStyle, setBlogStyle] = useState<string>('news');
+  const [blogLength, setBlogLength] = useState<string>('medium');
+  const [blogNotes, setBlogNotes] = useState('');
+  const [blogImage, setBlogImage] = useState('');
+  const [blogDraft, setBlogDraft] = useState<NewsItem | null>(null);
+  const [isGeneratingBlog, setIsGeneratingBlog] = useState(false);
+  const [isPublishingBlog, setIsPublishingBlog] = useState(false);
+  const [blogGenNotice, setBlogGenNotice] = useState<string | null>(null);
+  const [blogPublishSuccess, setBlogPublishSuccess] = useState<string | null>(null);
+
+  const updateBlogDraftField = <K extends keyof NewsItem>(field: K, value: NewsItem[K]) => {
+    setBlogDraft((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
 
   // Stories Management State
   const [storySearch, setStorySearch] = useState('');
@@ -635,53 +665,116 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Handle Manual Story Creation. Tries real Gemini-drafted content via the
-  // `generateArticleDraft` Cloud Function first (much better quality than
-  // the offline template), and falls back to the local template generator
-  // if that's unavailable — same try-real-then-fall-back pattern as the
-  // scraper itself.
-  const handleManualStorySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualTopic.trim()) return;
-    setIsDraftingManual(true);
-
-    let newStory = generateOriginalStory({
-      topic: manualTopic,
-      category: manualCat,
-      rawNotes: manualNotes,
-      imageUrl: manualImage,
-    });
+  // Step 1: Generate. Calls the `generateBlogPost` Cloud Function (real
+  // Gemini writing, with the chosen style + length) and shows the result as
+  // an editable preview — nothing is published yet. Falls back to the
+  // offline template generator if the function can't be reached, same
+  // try-real-then-fall-back pattern the scraper itself uses, so the form
+  // still produces something usable to edit by hand.
+  const generateBlogDraft = async () => {
+    if (!blogTitle.trim()) return;
+    setIsGeneratingBlog(true);
+    setBlogGenNotice(null);
+    setBlogPublishSuccess(null);
+    setBlogDraft(null);
 
     try {
-      const draftFn = httpsCallable(functions, 'generateArticleDraft');
-      const res: any = await draftFn({ topic: manualTopic, category: manualCat, rawNotes: manualNotes });
-      const draft = res.data;
-      if (draft?.content?.length) {
-        newStory = {
-          ...newStory,
-          summary: draft.summary || newStory.summary,
-          keyTakeaways: draft.keyTakeaways?.length ? draft.keyTakeaways : newStory.keyTakeaways,
-          content: draft.content,
-          whyItMatters: draft.whyItMatters || newStory.whyItMatters,
-          whatNext: draft.whatNext || newStory.whatNext,
-        };
+      const generateFn = httpsCallable(functions, 'generateBlogPost');
+      const res: any = await generateFn({
+        title: blogTitle,
+        category: blogCategory,
+        style: blogStyle,
+        length: blogLength,
+        notes: blogNotes,
+      });
+      const result: any = res.data;
+      if (!result?.content?.length) throw new Error('The AI did not return any content.');
+
+      const base = generateOriginalStory({
+        topic: blogTitle,
+        category: blogCategory,
+        rawNotes: blogNotes,
+        imageUrl: blogImage,
+        style: blogStyle,
+        length: blogLength as 'short' | 'medium' | 'long',
+      });
+      const wordCount = result.content.join(' ').split(/\s+/).filter(Boolean).length;
+      setBlogDraft({
+        ...base,
+        summary: result.summary || base.summary,
+        keyTakeaways: result.keyTakeaways?.length ? result.keyTakeaways : base.keyTakeaways,
+        content: result.content,
+        whyItMatters: result.whyItMatters || base.whyItMatters,
+        whatNext: result.whatNext || base.whatNext,
+        readTime: `${Math.max(2, Math.round(wordCount / 180))} min read`,
+      });
+    } catch (err: any) {
+      if (err?.code === 'functions/permission-denied') {
+        setBlogGenNotice('Only an administrator can generate blog posts.');
+      } else {
+        console.warn('AI blog generation unavailable, using offline template:', err);
+        setBlogGenNotice(
+          'The AI writer could not be reached just now, so this is an offline placeholder draft — edit it below, or try Generate again in a moment.'
+        );
+        setBlogDraft(
+          generateOriginalStory({
+            topic: blogTitle,
+            category: blogCategory,
+            rawNotes: blogNotes,
+            imageUrl: blogImage,
+            style: blogStyle,
+            length: blogLength as 'short' | 'medium' | 'long',
+          })
+        );
       }
-    } catch (err) {
-      console.warn('AI drafting unavailable, using offline template:', err);
+    } finally {
+      setIsGeneratingBlog(false);
     }
-    setIsDraftingManual(false);
+  };
 
-    saveCustomStory(newStory);
-    onAddStory(newStory);
+  // Step 2: Publish. Writes the (possibly hand-edited) draft straight to
+  // Firestore `stories` — the same collection the scraper bot writes to,
+  // and the one `App.tsx` reads from on every load — so it actually goes
+  // live for every reader instead of sitting only in this browser's
+  // localStorage. Firestore rules already allow this for a signed-in admin
+  // (see firestore.rules). Also mirrored into localStorage via
+  // saveCustomStory, as before, for instant local reflection even if the
+  // Firestore write is still in flight.
+  const handlePublishBlogDraft = async () => {
+    if (!blogDraft || !blogTitle.trim()) return;
+    setIsPublishingBlog(true);
+    setBlogGenNotice(null);
 
-    setManualSuccess(`Published custom story: "${newStory.title}"`);
-    setManualTopic('');
-    setManualNotes('');
-    setManualImage('');
+    const toPublish: NewsItem = {
+      ...blogDraft,
+      title: blogTitle.trim(),
+      category: blogCategory,
+      image: blogImage?.trim() || '',
+      author: `Viralhoods ${blogCategory} Desk`,
+    };
 
-    setTimeout(() => {
-      setManualSuccess(null);
-    }, 4500);
+    try {
+      await setDoc(doc(db, 'stories', toPublish.id), { ...toPublish, scrapedAt: new Date().toISOString() }, { merge: true });
+    } catch (err: any) {
+      console.error('Publish blog post to Firestore error:', err);
+      setBlogGenNotice(
+        err?.code === 'permission-denied'
+          ? 'Only an administrator can publish stories.'
+          : 'Could not reach the live database, so this was saved to this browser only for now — try Publish again when back online.'
+      );
+    }
+
+    saveCustomStory(toPublish);
+    onAddStory(toPublish);
+
+    setBlogPublishSuccess(`Published: "${toPublish.title}"`);
+    setBlogDraft(null);
+    setBlogTitle('');
+    setBlogNotes('');
+    setBlogImage('');
+    setIsPublishingBlog(false);
+
+    setTimeout(() => setBlogPublishSuccess(null), 5000);
   };
 
   // Handle Export Subscribers to Google Drive CSV
@@ -2491,7 +2584,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
             </div>
           )}
 
-          {/* Optional Manual Article Writer Accordion */}
+          {/* AI Blog Post Generator Accordion */}
           <div
             style={{
               background: 'var(--bg-card)',
@@ -2517,93 +2610,364 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 fontSize: '1rem',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <PlusCircle size={18} style={{ color: 'var(--blue)' }} />
-                <span>Manual Article Creator (Optional custom write-in)</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Sparkles size={18} style={{ color: 'var(--blue)' }} />
+                <div style={{ textAlign: 'left' }}>
+                  <div>AI Blog Post Generator</div>
+                  <div style={{ fontWeight: 500, fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
+                    Give it a title and a style — it drafts the rest. You review before it goes live.
+                  </div>
+                </div>
               </div>
               {showManualWriter ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
 
             {showManualWriter && (
               <div style={{ padding: '0 24px 24px', borderTop: '1px solid var(--line)' }}>
-                <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: '16px 0' }}>
-                  If you ever want to publish a custom story manually instead of using the automated bot, enter your notes below.
-                </p>
-
-                <form onSubmit={handleManualStorySubmit}>
-                  <div className="form-group">
-                    <label htmlFor="manual-topic">Article Topic</label>
-                    <input
-                      id="manual-topic"
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. Clean Energy Surges in European Power Markets"
-                      required
-                      value={manualTopic}
-                      onChange={(e) => setManualTopic(e.target.value)}
-                    />
+                {blogPublishSuccess && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      background: 'var(--blue-tint)',
+                      color: 'var(--blue)',
+                      borderRadius: 'var(--radius-md)',
+                      margin: '16px 0 0',
+                      fontWeight: 600,
+                      fontSize: '0.88rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    <CheckCircle size={16} style={{ flexShrink: 0 }} />
+                    {blogPublishSuccess}
                   </div>
+                )}
 
-                  <div className="form-group">
-                    <label htmlFor="manual-cat">Sector</label>
-                    <select
-                      id="manual-cat"
-                      className="form-input"
-                      value={manualCat}
-                      onChange={(e) => setManualCat(e.target.value as Category)}
-                    >
-                      {CATEGORIES.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                    </select>
+                {blogGenNotice && (
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      background: 'rgba(245, 158, 11, 0.12)',
+                      color: '#b45309',
+                      borderRadius: 'var(--radius-md)',
+                      margin: '16px 0 0',
+                      fontWeight: 600,
+                      fontSize: '0.86rem',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '8px',
+                    }}
+                  >
+                    <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
+                    <span>{blogGenNotice}</span>
                   </div>
+                )}
 
-                  <div className="form-group">
-                    <label htmlFor="manual-notes">Briefing Notes / Facts</label>
-                    <textarea
-                      id="manual-notes"
-                      className="form-input"
-                      rows={3}
-                      placeholder="Enter raw facts or context..."
-                      value={manualNotes}
-                      onChange={(e) => setManualNotes(e.target.value)}
-                    />
-                  </div>
+                {!blogDraft ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      generateBlogDraft();
+                    }}
+                  >
+                    <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: '16px 0' }}>
+                      Write the headline you want, pick a style and length, and optionally add an angle or facts to
+                      work in. The generator keeps your headline exactly as written.
+                    </p>
 
-                  <div className="form-group">
-                    <label htmlFor="manual-image">Image URL (Optional)</label>
-                    <input
-                      id="manual-image"
-                      type="url"
-                      className="form-input"
-                      placeholder="https://..."
-                      value={manualImage}
-                      onChange={(e) => setManualImage(e.target.value)}
-                    />
-                  </div>
+                    <div className="form-group">
+                      <label htmlFor="blog-title">Headline</label>
+                      <input
+                        id="blog-title"
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Clean Energy Surges in European Power Markets"
+                        required
+                        value={blogTitle}
+                        onChange={(e) => setBlogTitle(e.target.value)}
+                      />
+                    </div>
 
-                  {manualSuccess && (
                     <div
                       style={{
-                        padding: '10px 14px',
-                        background: 'var(--blue-tint)',
-                        color: 'var(--blue)',
-                        borderRadius: 'var(--radius-md)',
-                        marginBottom: '16px',
-                        fontWeight: 600,
-                        fontSize: '0.88rem',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                        gap: '16px',
                       }}
                     >
-                      {manualSuccess}
-                    </div>
-                  )}
+                      <div className="form-group">
+                        <label htmlFor="blog-cat">Sector</label>
+                        <select
+                          id="blog-cat"
+                          className="form-input"
+                          value={blogCategory}
+                          onChange={(e) => setBlogCategory(e.target.value as Category)}
+                        >
+                          {CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <button type="submit" className="btn-primary" disabled={isDraftingManual} style={{ padding: '10px 20px' }}>
-                    {isDraftingManual ? 'Drafting with AI...' : 'Publish Story'}
-                  </button>
-                </form>
+                      <div className="form-group">
+                        <label htmlFor="blog-style">Style</label>
+                        <select
+                          id="blog-style"
+                          className="form-input"
+                          value={blogStyle}
+                          onChange={(e) => setBlogStyle(e.target.value)}
+                        >
+                          {BLOG_STYLES.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', marginTop: '5px' }}>
+                          {BLOG_STYLES.find((s) => s.value === blogStyle)?.hint}
+                        </div>
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="blog-length">Length</label>
+                        <select
+                          id="blog-length"
+                          className="form-input"
+                          value={blogLength}
+                          onChange={(e) => setBlogLength(e.target.value)}
+                        >
+                          {BLOG_LENGTHS.map((l) => (
+                            <option key={l.value} value={l.value}>
+                              {l.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', marginTop: '5px' }}>
+                          {BLOG_LENGTHS.find((l) => l.value === blogLength)?.hint}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="blog-notes">Angle, notes, or facts to include (optional)</label>
+                      <textarea
+                        id="blog-notes"
+                        className="form-input"
+                        rows={3}
+                        placeholder="Anything specific you want covered or emphasized..."
+                        value={blogNotes}
+                        onChange={(e) => setBlogNotes(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="blog-image">Image URL (optional)</label>
+                      <input
+                        id="blog-image"
+                        type="url"
+                        className="form-input"
+                        placeholder="https://..."
+                        value={blogImage}
+                        onChange={(e) => setBlogImage(e.target.value)}
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={isGeneratingBlog || !blogTitle.trim()}
+                      style={{ padding: '10px 20px', width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                    >
+                      <Sparkles size={15} className={isGeneratingBlog ? 'spin-icon' : ''} />
+                      {isGeneratingBlog ? 'Writing with AI...' : 'Generate Draft'}
+                    </button>
+                  </form>
+                ) : (
+                  <div style={{ marginTop: '16px' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '8px',
+                        marginBottom: '14px',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.84rem', color: 'var(--fg-muted)' }}>
+                        {(blogDraft.content || []).join(' ').split(/\s+/).filter(Boolean).length} words ·{' '}
+                        {blogDraft.readTime} · {BLOG_STYLES.find((s) => s.value === blogStyle)?.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setBlogDraft(null)}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--blue)',
+                          fontWeight: 700,
+                          fontSize: '0.84rem',
+                          cursor: 'pointer',
+                          padding: 0,
+                        }}
+                      >
+                        ‹ Back to settings
+                      </button>
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="blog-title-edit">Headline</label>
+                      <input
+                        id="blog-title-edit"
+                        type="text"
+                        className="form-input"
+                        required
+                        value={blogTitle}
+                        onChange={(e) => setBlogTitle(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="blog-summary">Summary / dek</label>
+                      <textarea
+                        id="blog-summary"
+                        className="form-input"
+                        rows={2}
+                        value={blogDraft.summary}
+                        onChange={(e) => updateBlogDraftField('summary', e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="blog-takeaways">Key takeaways (one per line)</label>
+                      <textarea
+                        id="blog-takeaways"
+                        className="form-input"
+                        rows={4}
+                        value={(blogDraft.keyTakeaways || []).join('\n')}
+                        onChange={(e) =>
+                          updateBlogDraftField(
+                            'keyTakeaways',
+                            e.target.value.split('\n').map((t) => t.trim()).filter(Boolean)
+                          )
+                        }
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="blog-content">Body (leave a blank line between paragraphs)</label>
+                      <textarea
+                        id="blog-content"
+                        className="form-input"
+                        rows={14}
+                        style={{ fontFamily: 'inherit', lineHeight: 1.6 }}
+                        value={(blogDraft.content || []).join('\n\n')}
+                        onChange={(e) =>
+                          updateBlogDraftField(
+                            'content',
+                            e.target.value.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+                          )
+                        }
+                      />
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                        gap: '16px',
+                      }}
+                    >
+                      <div className="form-group">
+                        <label htmlFor="blog-why">Why it matters</label>
+                        <textarea
+                          id="blog-why"
+                          className="form-input"
+                          rows={2}
+                          value={blogDraft.whyItMatters || ''}
+                          onChange={(e) => updateBlogDraftField('whyItMatters', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label htmlFor="blog-next">What's next</label>
+                        <textarea
+                          id="blog-next"
+                          className="form-input"
+                          rows={2}
+                          value={blogDraft.whatNext || ''}
+                          onChange={(e) => updateBlogDraftField('whatNext', e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                        gap: '16px',
+                      }}
+                    >
+                      <div className="form-group">
+                        <label htmlFor="blog-cat-edit">Sector</label>
+                        <select
+                          id="blog-cat-edit"
+                          className="form-input"
+                          value={blogCategory}
+                          onChange={(e) => setBlogCategory(e.target.value as Category)}
+                        >
+                          {CATEGORIES.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label htmlFor="blog-image-edit">Image URL (optional)</label>
+                        <input
+                          id="blog-image-edit"
+                          type="url"
+                          className="form-input"
+                          placeholder="https://..."
+                          value={blogImage}
+                          onChange={(e) => setBlogImage(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '6px' }}>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={handlePublishBlogDraft}
+                        disabled={isPublishingBlog || !blogTitle.trim()}
+                        style={{ padding: '10px 20px', width: 'auto' }}
+                      >
+                        {isPublishingBlog ? 'Publishing...' : 'Publish Story'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => generateBlogDraft()}
+                        disabled={isGeneratingBlog}
+                        style={{
+                          padding: '10px 20px',
+                          background: 'transparent',
+                          border: '1px solid var(--line)',
+                          borderRadius: 'var(--radius-md)',
+                          color: 'var(--fg)',
+                          fontWeight: 700,
+                          fontSize: '0.95rem',
+                          cursor: isGeneratingBlog ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        Regenerate
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

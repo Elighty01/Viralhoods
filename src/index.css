@@ -778,6 +778,45 @@ input.search-input:focus {
   color: var(--fg);
 }
 
+/* Divider between stacked stories in the continuous-scroll reader
+   (ArticleView) — signals that a new article is starting as the reader
+   keeps scrolling, in the same small-caps label voice as .category-name
+   elsewhere rather than a generic rule. */
+.up-next-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 48px 0 32px;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.up-next-divider::before,
+.up-next-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* Category pill — small badge used in admin lists (Story Desk, AI Blog
+   Post Generator preview). Referenced in a few places but never defined,
+   same gap as .spin-icon and .btn-outline elsewhere in this file. */
+.cat-pill {
+  display: inline-block;
+  background: var(--blue-tint);
+  color: var(--blue);
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 /* Social Badges Pill Styling */
 .social-badge-pill {
   display: inline-flex;
@@ -901,6 +940,25 @@ input.search-input:focus {
 
 .btn-primary:hover {
   background: var(--blue-hover);
+}
+
+/* Outline button — secondary action next to .btn-primary (feed's "Load
+   more", Entertainment Hub's request button). Referenced in a few places
+   but never defined, same gap as .spin-icon and .cat-pill elsewhere in
+   this file. */
+.btn-outline {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-outline:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-tint);
 }
 
 /* Admin Dashboard */

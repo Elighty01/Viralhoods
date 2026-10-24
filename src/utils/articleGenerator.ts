@@ -110,8 +110,34 @@ export const enrichStoryWithFullContent = (rawItem: NewsItem): NewsItem => {
   };
 };
 
+/** Style-flavored opening paragraphs for the offline fallback generator —
+ * used only when `generateBlogPost` (the real Gemini-backed writer, see
+ * functions/src/index.ts) is unreachable. Keep the keys in sync with the
+ * style <select> in AdminView.tsx's blog generator form. */
+const OFFLINE_STYLE_OPENERS: Record<string, (topic: string, summary: string, category: string) => string> = {
+  news: (_topic, summary, category) =>
+    `In a major development today, ${summary} Viralhoods reporters and analysts have tracked the trajectory of this issue as it transitions from specialized briefings into broad ${category.toLowerCase()}-sector prominence.`,
+  investigative: (topic, summary, category) =>
+    `A closer look at ${topic} shows a story that goes well beyond the headline. ${summary} Viralhoods' review of the available record surfaces the context and incentives that the first reports left out, with implications across the wider ${category.toLowerCase()} landscape.`,
+  opinion: (topic, summary, category) =>
+    `Here's our take: ${topic} deserves more attention than it's getting. ${summary} In our view, this is a moment worth watching closely for anyone following the ${category.toLowerCase()} beat.`,
+  explainer: (topic, summary, category) =>
+    `Here's what ${topic} actually means, and why it's showing up in ${category.toLowerCase()} coverage right now. ${summary} We'll walk through the basics below.`,
+  listicle: (topic, summary, category) =>
+    `${topic} is generating real buzz across the ${category.toLowerCase()} world right now. ${summary} Here's a rundown of what's worth knowing, point by point.`,
+  feature: (topic, summary, category) =>
+    `It started, as these stories often do, with a detail easy to miss. ${summary} Now ${topic} is shaping up to be one of the more closely watched threads in ${category.toLowerCase()} this season.`,
+  casual: (topic, summary, category) =>
+    `Okay, let's talk about ${topic} for a second. ${summary} Here's the quick version of what's going on in the ${category.toLowerCase()} world.`,
+};
+
+const OFFLINE_LENGTH_PARAGRAPH_COUNT: Record<string, number> = { short: 3, medium: 5, long: 8 };
+
 /**
  * Generates a completely new original Viralhoods story from a raw topic or notes.
+ * `style` and `length` are optional — used by the AI Blog Post Generator's
+ * offline fallback (see AdminView.tsx) when `generateBlogPost` can't be
+ * reached; the plain "Article Topic" flow still works unchanged without them.
  */
 export const generateOriginalStory = (params: {
   topic: string;
@@ -119,8 +145,10 @@ export const generateOriginalStory = (params: {
   rawNotes?: string;
   imageUrl?: string;
   videoUrl?: string;
+  style?: string;
+  length?: 'short' | 'medium' | 'long';
 }): NewsItem => {
-  const { topic, category, rawNotes, imageUrl, videoUrl } = params;
+  const { topic, category, rawNotes, imageUrl, videoUrl, style, length } = params;
   const id = 'vh_' + Math.random().toString(36).substring(2, 10);
   const date = new Date().toISOString();
 
@@ -131,13 +159,29 @@ export const generateOriginalStory = (params: {
       ? rawNotes.trim().slice(0, 260)
       : `Viralhoods comprehensive investigative report on ${topic}: analysis, key drivers, stakeholder perspectives, and emerging implications for the ${category.toLowerCase()} landscape.`;
 
-  const p1 = `In a major development today, ${summary} Viralhoods reporters and analysts have tracked the trajectory of this issue as it transitions from specialized briefings into broad international prominence.`;
-  const p2 = `The initiative brings together key elements that reflect broader shifts across the ${category.toLowerCase()} sector. By prioritizing direct impact and substantiated facts, observers are finding that the narrative extends well beyond superficial headlines, uncovering structural forces that will shape future practices.`;
-  const p3 = `Field experts and sector analysts emphasize that the response in the coming days will serve as a bellwether for similar initiatives globally. Early feedback points to increased engagement from both institutions, industry associations, and affected communities.`;
-  const p4 = videoUrl
-    ? `Multimedia coverage and video reporting accompanying this story provide in-depth visual context. Readers can view the documentation via the designated video link (${videoUrl}) to examine key remarks, visual evidence, and recorded proceedings.`
-    : `Comparative data from preceding cycles suggests that early proactive measures tend to produce substantially better outcomes than delayed interventions. Market participants are already pricing in adjustments across supply lines, governance protocols, and capital allocations.`;
-  const p5 = `Viralhoods continues to examine the evolving repercussions of this story, verifying updates and providing clear, context-rich journalism for our global readership. Further reports will be published as additional details are corroborated.`;
+  const opener = (style && OFFLINE_STYLE_OPENERS[style] ? OFFLINE_STYLE_OPENERS[style] : OFFLINE_STYLE_OPENERS.news)(
+    topic,
+    summary,
+    category
+  );
+
+  const fillerParagraphs = [
+    `The initiative brings together key elements that reflect broader shifts across the ${category.toLowerCase()} sector. By prioritizing direct impact and substantiated facts, observers are finding that the narrative extends well beyond superficial headlines, uncovering structural forces that will shape future practices.`,
+    `Field experts and sector analysts emphasize that the response in the coming days will serve as a bellwether for similar initiatives globally. Early feedback points to increased engagement from both institutions, industry associations, and affected communities.`,
+    videoUrl
+      ? `Multimedia coverage and video reporting accompanying this story provide in-depth visual context. Readers can view the documentation via the designated video link (${videoUrl}) to examine key remarks, visual evidence, and recorded proceedings.`
+      : `Comparative data from preceding cycles suggests that early proactive measures tend to produce substantially better outcomes than delayed interventions. Market participants are already pricing in adjustments across supply lines, governance protocols, and capital allocations.`,
+    `Stakeholder reaction has been mixed but attentive, with several organizations already signaling plans to revisit their own positioning in light of this development.`,
+    `Historical comparisons to similar inflection points suggest the coming weeks will be more consequential than the initial headlines let on.`,
+    `Independent reviewers note that the verified details available so far are consistent with the broader pattern already visible across the ${category.toLowerCase()} sector this year.`,
+    `Viralhoods continues to examine the evolving repercussions of this story, verifying updates and providing clear, context-rich journalism for our global readership. Further reports will be published as additional details are corroborated.`,
+  ];
+
+  const targetParagraphs = Math.max(3, OFFLINE_LENGTH_PARAGRAPH_COUNT[length || 'medium'] || 5);
+  let content = [opener, ...fillerParagraphs.slice(0, targetParagraphs - 1)];
+  if (style === 'listicle') {
+    content = content.map((p, i) => (i === 0 ? p : `${i}. ${p}`));
+  }
 
   const item: NewsItem = {
     id,
@@ -149,14 +193,15 @@ export const generateOriginalStory = (params: {
     hasVideo: Boolean(videoUrl?.trim()),
     date,
     author: `Viralhoods ${category} Desk`,
-    readTime: '4 min read',
+    readTime: `${Math.max(2, Math.round((content.join(' ').split(/\s+/).length) / 180))} min read`,
     keyTakeaways: [
       `Strategic developments surrounding ${topic} mark a noticeable acceleration in sector activity.`,
       `Key stakeholders emphasize the urgent necessity of proactive adaptation in response to evolving benchmarks.`,
       `Initial economic, regulatory, and operational evaluations project durable implications over the coming quarters.`,
-      `Verified metrics and field reviews will guide upcoming milestones as formal proceedings unfold.`
-    ],
-    content: [p1, p2, p3, p4, p5],
+      `Verified metrics and field reviews will guide upcoming milestones as formal proceedings unfold.`,
+      `Independent observers are already drawing comparisons to past turning points in the ${category.toLowerCase()} sector.`,
+    ].slice(0, length === 'short' ? 3 : length === 'long' ? 5 : 4),
+    content,
     whyItMatters: `The repercussions will be felt across multiple domains, establishing new benchmarks for how ${category.toLowerCase()} challenges and opportunities are addressed globally.`,
     whatNext: `Follow-up assessments, formal reviews, and stakeholder panels are scheduled over the coming weeks. Viralhoods will publish continuous coverage as verified details emerge.`,
   };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { NewsItem, User, UnifiedSearchResponse } from '../types';
 import { NewsCard, formatAgo } from './NewsCard';
 import { NewsletterBanner } from './NewsletterBanner';
@@ -95,6 +95,28 @@ export const FeedView: React.FC<FeedViewProps> = ({
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [category, showOnlyBookmarks, normalizedQuery]);
+
+  // Infinite scroll: reveal the next page automatically as the reader
+  // nears the bottom of the grid, instead of requiring a click every time.
+  // The "Load more" button a little further down still works too — this
+  // sentinel just saves the click in the common case. Re-armed whenever
+  // visibleCount or the result count changes; it's a no-op once everything
+  // currently matching is already visible.
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = loadMoreSentinelRef.current;
+    if (!node || visibleCount >= filteredItems.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => Math.min(c + PAGE_SIZE, filteredItems.length));
+        }
+      },
+      { rootMargin: '800px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visibleCount, filteredItems.length]);
 
   const updatedText = updatedTime ? `Updated ${formatAgo(updatedTime)}` : 'Live Feed Active';
 
@@ -892,15 +914,37 @@ export const FeedView: React.FC<FeedViewProps> = ({
                     )}
 
                     {filteredItems.length > visibleCount && (
-                      <div style={{ display: 'flex', justifyContent: 'center', margin: '28px 0 8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                          className="btn-outline"
-                          style={{ padding: '10px 24px', fontWeight: 700, fontSize: '0.9rem' }}
-                        >
-                          Load More ({filteredItems.length - visibleCount} remaining)
-                        </button>
+                      <>
+                        {/* Invisible trigger the infinite-scroll observer above
+                            watches — sits ~800px above the real bottom so the
+                            next page is already in place by the time the
+                            reader scrolls there. */}
+                        <div ref={loadMoreSentinelRef} aria-hidden="true" style={{ height: '1px' }} />
+                        <div style={{ display: 'flex', justifyContent: 'center', margin: '28px 0 8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                            className="btn-outline"
+                            style={{ padding: '10px 24px', fontWeight: 700, fontSize: '0.9rem' }}
+                          >
+                            Load More ({filteredItems.length - visibleCount} remaining)
+                          </button>
+                        </div>
+                      </>
+                    )}
+
+                    {filteredItems.length > PAGE_SIZE && filteredItems.length <= visibleCount && (
+                      <div
+                        style={{
+                          textAlign: 'center',
+                          color: 'var(--fg-muted)',
+                          fontSize: '0.88rem',
+                          margin: '28px 0 8px',
+                          paddingTop: '20px',
+                          borderTop: '1px solid var(--line)',
+                        }}
+                      >
+                        You're all caught up — {filteredItems.length} stories shown.
                       </div>
                     )}
                   </>

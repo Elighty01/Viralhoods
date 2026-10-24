@@ -553,10 +553,9 @@ export const App: React.FC = () => {
         <ArticleView
           story={currentActiveStory}
           allStories={allStories}
-          isBookmarked={bookmarks.includes(currentActiveStory.id)}
+          bookmarks={bookmarks}
           onToggleBookmark={handleToggleBookmark}
           onBack={handleBackToFeed}
-          onOpenStory={handleOpenStory}
           onSubscribe={handleSubscribe}
         />
       )}

@@ -1,15 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { NewsItem } from '../types';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { NewsItem, CATEGORIES } from '../types';
 import { enrichStoryWithFullContent } from '../utils/articleGenerator';
 import { sanitizeHtmlText } from '../utils/sanitize';
 import { formatAgo } from './NewsCard';
+import { trackPageVisit } from '../utils/analytics';
 import {
   ArrowLeft,
   Bookmark,
-  Share2,
   Volume2,
   VolumeX,
-  Check,
   Sparkles,
   Layers,
   Clock,
@@ -19,6 +18,7 @@ import {
   Play,
   Video,
   ExternalLink,
+  PartyPopper,
 } from 'lucide-react';
 import { SocialShareBar } from './SocialShareBar';
 import { NewsletterBanner } from './NewsletterBanner';
@@ -26,10 +26,9 @@ import { NewsletterBanner } from './NewsletterBanner';
 interface ArticleViewProps {
   story: NewsItem;
   allStories: NewsItem[];
-  isBookmarked: boolean;
+  bookmarks: string[];
   onToggleBookmark: (id: string, e: React.MouseEvent) => void;
   onBack: () => void;
-  onOpenStory: (item: NewsItem) => void;
   onSubscribe: (email: string) => Promise<boolean> | boolean | void;
 }
 
@@ -95,498 +94,443 @@ export const renderParagraphWithLinks = (text: string) => {
   });
 };
 
-export const ArticleView: React.FC<ArticleViewProps> = ({
+// Picks the next story to auto-load in the continuous reading scroll:
+// prefer the same sector (catalog order, which is newest-first within a
+// sector — see data/news.json), then fall back to any other unseen story.
+// Returns null once nothing is left to show.
+const pickNextStory = (currentCategory: string, allStories: NewsItem[], seenIds: Set<string>): NewsItem | null => {
+  const sameCategory = allStories.find((s) => s.category === currentCategory && !seenIds.has(s.id));
+  if (sameCategory) return sameCategory;
+  return allStories.find((s) => !seenIds.has(s.id)) || null;
+};
+
+const UpNextDivider: React.FC<{ category: string }> = ({ category }) => (
+  <div className="up-next-divider" aria-hidden="true">
+    <span>Up Next in {category}</span>
+  </div>
+);
+
+interface ArticleBlockProps {
+  story: NewsItem;
+  isBookmarked: boolean;
+  onToggleBookmark: (id: string, e: React.MouseEvent) => void;
+  isSpeaking: boolean;
+  onToggleSpeech: () => void;
+  registerNode: (id: string, el: HTMLElement | null) => void;
+  showNewsletter: boolean;
+  onSubscribe: (email: string) => Promise<boolean> | boolean | void;
+}
+
+/** Renders one full story's reading content — header, media, body, and the
+ * editorial sections. One of these is mounted per story in the continuous
+ * scroll stack managed by ArticleView below; each instance owns only the
+ * bits that are genuinely per-article (image-load state, the newsletter
+ * "subscribed" toast). Shared, cross-article state (which story is being
+ * read aloud, the stack itself) is lifted to the parent. */
+const ArticleBlock: React.FC<ArticleBlockProps> = ({
   story,
-  allStories,
   isBookmarked,
   onToggleBookmark,
-  onBack,
-  onOpenStory,
+  isSpeaking,
+  onToggleSpeech,
+  registerNode,
+  showNewsletter,
   onSubscribe,
 }) => {
-  const [enrichedStory, setEnrichedStory] = useState<NewsItem>(() =>
-    enrichStoryWithFullContent(story)
-  );
-  const [copied, setCopied] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [newsletterEmail, setNewsletterEmail] = useState('');
   const [subscribedToast, setSubscribedToast] = useState(false);
-  const [scrollProgress, setScrollProgress] = useState(0);
 
-  // Update enriched story on prop change
-  useEffect(() => {
-    setEnrichedStory(enrichStoryWithFullContent(story));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setImageError(false);
-  }, [story]);
+  // `story` is stable for this block's whole lifetime — continuous scroll
+  // mounts a fresh ArticleBlock (keyed by id) per story rather than
+  // reusing one instance across stories, so there's no need to re-derive
+  // this on a prop-change effect the way a single-story view would.
+  const enrichedStory = useMemo(() => enrichStoryWithFullContent(story), [story]);
+  const readingMetrics = useMemo(() => calculateStoryReadingMetrics(enrichedStory), [enrichedStory]);
 
-  // Clean up any web speech synthesis on unmount or story change
-  useEffect(() => {
-    return () => {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, [story]);
+  const setNodeRef = useCallback((el: HTMLElement | null) => registerNode(story.id, el), [registerNode, story.id]);
 
-  // Calculate dynamic reading metrics based on exact word count
-  const readingMetrics = useMemo(() => {
-    return calculateStoryReadingMetrics(enrichedStory);
-  }, [enrichedStory]);
-
-  // Reading scroll progress tracker
-  useEffect(() => {
-    const handleScroll = () => {
-      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (totalHeight > 0) {
-        const progress = Math.min(100, Math.max(0, (window.scrollY / totalHeight) * 100));
-        setScrollProgress(progress);
-      }
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  const handleShare = async () => {
-    const url = `${window.location.origin}${window.location.pathname}#story-${story.id}`;
-    if (navigator.clipboard) {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
-    }
-  };
-
-  const handleToggleSpeech = () => {
-    if (!('speechSynthesis' in window)) return;
-
-    if (isSpeaking) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    } else {
-      const textToRead = `${enrichedStory.title}. ${enrichedStory.summary}. Key Takeaways: ${enrichedStory.keyTakeaways?.join('. ')}. ${enrichedStory.content?.slice(0, 2).join(' ')}`;
-      const utterance = new SpeechSynthesisUtterance(textToRead);
-      utterance.rate = 1.0;
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-      window.speechSynthesis.speak(utterance);
-      setIsSpeaking(true);
-    }
-  };
-
-  const handleInlineSubscribe = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newsletterEmail || !newsletterEmail.includes('@')) return;
-    onSubscribe(newsletterEmail);
-    setNewsletterEmail('');
-    setSubscribedToast(true);
-    setTimeout(() => setSubscribedToast(false), 3000);
-  };
-
-  // Find related stories from same sector (excluding this one)
-  const relatedStories = allStories
-    .filter((s) => s.id !== story.id && s.category === story.category)
-    .slice(0, 3);
-
-  const fallbackBackground = `linear-gradient(135deg, hsl(200 80% 45%), hsl(255 85% 30%))`;
+  const catIndex = CATEGORIES.indexOf(story.category as (typeof CATEGORIES)[number]);
+  const hue = catIndex >= 0 ? catIndex * 36 : 210;
+  const fallbackBackground = `linear-gradient(135deg, hsl(${hue} 75% 45%), hsl(${hue + 45} 85% 30%))`;
 
   return (
-    <>
-      {/* Scroll Reading Progress Bar at the top of the viewport */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: `${scrollProgress}%`,
-          height: '3.5px',
-          background: 'linear-gradient(90deg, var(--blue), var(--sun))',
-          zIndex: 100,
-          transition: 'width 0.1s ease-out',
-        }}
-        aria-hidden="true"
-      />
-
-      <main className="w article-view">
-        <button className="back-btn" onClick={onBack}>
-          <ArrowLeft size={16} /> Back to Trending Stories
-        </button>
-
-        <article>
-          <header className="article-header">
-            {/* Meta Row with Calculated Reading Time & Word Count */}
-            <div className="article-kicker-row">
-              <span
-                style={{
-                  color: 'var(--blue)',
-                  fontWeight: 800,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.04em',
-                  fontSize: '0.84rem',
-                }}
-              >
-                {enrichedStory.category}
-              </span>
+    <article ref={setNodeRef} data-story-id={story.id}>
+      <header className="article-header">
+        {/* Meta Row with Calculated Reading Time & Word Count */}
+        <div className="article-kicker-row">
+          <span
+            style={{
+              color: 'var(--blue)',
+              fontWeight: 800,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              fontSize: '0.84rem',
+            }}
+          >
+            {enrichedStory.category}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              color: 'var(--fg)',
+              fontWeight: 600,
+            }}
+            title={`Calculated from ${readingMetrics.wordCount} words at 200 words/minute`}
+          >
+            <Clock size={14} style={{ color: 'var(--blue)' }} />
+            <strong>{readingMetrics.readTimeLabel}</strong>
+            <span style={{ color: 'var(--fg-muted)' }}>({readingMetrics.wordCount} words)</span>
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>Published {formatAgo(enrichedStory.date)}</span>
+          {(enrichedStory.videoUrl || enrichedStory.hasVideo) && (
+            <>
               <span aria-hidden="true">·</span>
               <span
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '5px',
-                  color: 'var(--fg)',
-                  fontWeight: 600,
+                  gap: '4px',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#ef4444',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
                 }}
-                title={`Calculated from ${readingMetrics.wordCount} words at 200 words/minute`}
               >
-                <Clock size={14} style={{ color: 'var(--blue)' }} />
-                <strong>{readingMetrics.readTimeLabel}</strong>
-                <span style={{ color: 'var(--fg-muted)' }}>({readingMetrics.wordCount} words)</span>
+                <Video size={13} /> Video Coverage
               </span>
-              <span aria-hidden="true">·</span>
-              <span>Published {formatAgo(enrichedStory.date)}</span>
-              {(enrichedStory.videoUrl || enrichedStory.hasVideo) && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      background: 'rgba(239, 68, 68, 0.12)',
-                      color: '#ef4444',
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      fontWeight: 700,
-                      fontSize: '0.78rem',
-                    }}
-                  >
-                    <Video size={13} /> Video Coverage
-                  </span>
-                </>
-              )}
-            </div>
+            </>
+          )}
+        </div>
 
-            <h1 className="article-title">{sanitizeHtmlText(enrichedStory.title)}</h1>
+        <h1 className="article-title">{sanitizeHtmlText(enrichedStory.title)}</h1>
 
-            <p className="article-summary-lead">{sanitizeHtmlText(enrichedStory.summary)}</p>
+        <p className="article-summary-lead">{sanitizeHtmlText(enrichedStory.summary)}</p>
 
-            {/* Reading Estimation Card / Metrics Bar */}
+        {/* Reading Estimation Card / Metrics Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            padding: '10px 16px',
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--radius-md)',
+            fontSize: '0.84rem',
+            color: 'var(--fg-muted)',
+            marginBottom: '20px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <BookOpen size={15} style={{ color: 'var(--blue)' }} />
+            <span>
+              Estimated Read Time: <strong style={{ color: 'var(--fg)' }}>{readingMetrics.minutes} minute{readingMetrics.minutes === 1 ? '' : 's'}</strong>
+            </span>
+          </div>
+          <span aria-hidden="true">·</span>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Gauge size={15} style={{ color: 'var(--sun)' }} />
+            <span>
+              Length: <strong style={{ color: 'var(--fg)' }}>{readingMetrics.wordCount} words</strong> (at standard ~200 wpm)
+            </span>
+          </div>
+        </div>
+
+        <div className="article-byline-bar">
+          <div className="author-info">
+            {/* Real Tablet Logo Used as Author Avatar */}
             <div
+              className="author-avatar"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '16px',
-                padding: '10px 16px',
-                background: 'var(--bg-subtle)',
+                background: 'transparent',
                 border: '1px solid var(--line)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '0.84rem',
-                color: 'var(--fg-muted)',
-                marginBottom: '20px',
-                flexWrap: 'wrap',
+                overflow: 'hidden',
+                padding: '2px',
               }}
             >
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <BookOpen size={15} style={{ color: 'var(--blue)' }} />
-                <span>
-                  Estimated Read Time: <strong style={{ color: 'var(--fg)' }}>{readingMetrics.minutes} minute{readingMetrics.minutes === 1 ? '' : 's'}</strong>
-                </span>
-              </div>
-              <span aria-hidden="true">·</span>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                <Gauge size={15} style={{ color: 'var(--sun)' }} />
-                <span>
-                  Length: <strong style={{ color: 'var(--fg)' }}>{readingMetrics.wordCount} words</strong> (at standard ~200 wpm)
-                </span>
-              </div>
-            </div>
-
-            <div className="article-byline-bar">
-              <div className="author-info">
-                {/* Real Tablet Logo Used as Author Avatar */}
-                <div
-                  className="author-avatar"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid var(--line)',
-                    overflow: 'hidden',
-                    padding: '2px',
-                  }}
-                >
-                  <img
-                    src={`${import.meta.env.BASE_URL}logo.svg`}
-                    alt="Viralhoods Real Logo"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                </div>
-                <div className="author-text">
-                  <div className="author-name">{enrichedStory.author || 'Viralhoods Editorial Desk'}</div>
-                  <div style={{ color: 'var(--fg-muted)', fontSize: '0.8rem' }}>
-                    Original Reporting & Synthesis · Verified by Viralhoods
-                  </div>
-                </div>
-              </div>
-
-              <div className="article-actions">
-                {'speechSynthesis' in window && (
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={handleToggleSpeech}
-                    title={isSpeaking ? 'Stop audio' : 'Listen to story'}
-                  >
-                    {isSpeaking ? (
-                      <>
-                        <VolumeX size={15} style={{ color: '#ef4444' }} /> Stop Audio
-                      </>
-                    ) : (
-                      <>
-                        <Volume2 size={15} /> Listen ({readingMetrics.minutes}m)
-                      </>
-                    )}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className="icon-btn"
-                  onClick={(e) => onToggleBookmark(story.id, e)}
-                  title={isBookmarked ? 'Bookmarked' : 'Bookmark story'}
-                >
-                  <Bookmark
-                    size={15}
-                    fill={isBookmarked ? 'var(--sun)' : 'none'}
-                    color={isBookmarked ? 'var(--sun)' : 'currentColor'}
-                  />
-                  {isBookmarked ? 'Saved' : 'Save'}
-                </button>
-
-                <SocialShareBar
-                  title={enrichedStory.title}
-                  storyId={story.id}
-                  category={enrichedStory.category}
-                  summary={enrichedStory.summary}
-                  variant="compact"
-                />
-              </div>
-            </div>
-          </header>
-
-          {/* Featured Media */}
-          <div className="article-media-hero">
-            {enrichedStory.image && !imageError ? (
               <img
-                src={enrichedStory.image}
-                alt={enrichedStory.title}
-                onError={() => setImageError(true)}
+                src={`${import.meta.env.BASE_URL}logo.svg`}
+                alt="Viralhoods Real Logo"
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />
-            ) : (
+            </div>
+            <div className="author-text">
+              <div className="author-name">{enrichedStory.author || 'Viralhoods Editorial Desk'}</div>
+              <div style={{ color: 'var(--fg-muted)', fontSize: '0.8rem' }}>
+                Original Reporting & Synthesis · Verified by Viralhoods
+              </div>
+            </div>
+          </div>
+
+          <div className="article-actions">
+            {'speechSynthesis' in window && (
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={onToggleSpeech}
+                title={isSpeaking ? 'Stop audio' : 'Listen to story'}
+              >
+                {isSpeaking ? (
+                  <>
+                    <VolumeX size={15} style={{ color: '#ef4444' }} /> Stop Audio
+                  </>
+                ) : (
+                  <>
+                    <Volume2 size={15} /> Listen ({readingMetrics.minutes}m)
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={(e) => onToggleBookmark(story.id, e)}
+              title={isBookmarked ? 'Bookmarked' : 'Bookmark story'}
+            >
+              <Bookmark
+                size={15}
+                fill={isBookmarked ? 'var(--sun)' : 'none'}
+                color={isBookmarked ? 'var(--sun)' : 'currentColor'}
+              />
+              {isBookmarked ? 'Saved' : 'Save'}
+            </button>
+
+            <SocialShareBar
+              title={enrichedStory.title}
+              storyId={story.id}
+              category={enrichedStory.category}
+              summary={enrichedStory.summary}
+              variant="compact"
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Featured Media */}
+      <div className="article-media-hero">
+        {enrichedStory.image && !imageError ? (
+          <img
+            src={enrichedStory.image}
+            alt={enrichedStory.title}
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div
+            style={{
+              height: '320px',
+              background: fallbackBackground,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'white',
+              gap: '12px',
+              padding: '20px',
+              textAlign: 'center',
+            }}
+          >
+            <img
+              src={`${import.meta.env.BASE_URL}logo.svg`}
+              alt="Viralhoods Real Logo"
+              style={{ width: '120px', height: '86px', filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))' }}
+            />
+            <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>Viralhoods Sector Report</span>
+          </div>
+        )}
+      </div>
+
+      {/* Video Player / Embed Section if Story Contains Video */}
+      {enrichedStory.videoUrl && (
+        <div
+          className="article-video-container"
+          style={{
+            margin: '24px 0 28px',
+            borderRadius: 'var(--radius-lg)',
+            overflow: 'hidden',
+            background: 'var(--bg-subtle)',
+            border: '1px solid var(--line)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '12px 18px',
+              background: 'var(--bg)',
+              borderBottom: '1px solid var(--line)',
+              fontSize: '0.88rem',
+              fontWeight: 700,
+            }}
+          >
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
+              <Play size={16} fill="#ef4444" />
+              <span style={{ color: 'var(--fg)' }}>Video Coverage & Multimedia Evidence</span>
+            </div>
+            <a
+              href={enrichedStory.videoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                color: 'var(--blue)',
+                fontSize: '0.82rem',
+                textDecoration: 'none',
+                fontWeight: 600,
+              }}
+            >
+              Source Video <ExternalLink size={13} />
+            </a>
+          </div>
+
+          {getYouTubeId(enrichedStory.videoUrl) ? (
+            <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
+              <iframe
+                src={`https://www.youtube-nocookie.com/embed/${getYouTubeId(enrichedStory.videoUrl)}?rel=0`}
+                title={enrichedStory.title}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  border: 0,
+                }}
+              />
+            </div>
+          ) : enrichedStory.videoUrl.match(/\.(mp4|webm|m3u8)(\?|$)/i) ? (
+            <video
+              controls
+              src={enrichedStory.videoUrl}
+              style={{ width: '100%', maxHeight: '480px', background: '#000' }}
+            />
+          ) : (
+            <div
+              style={{
+                padding: '24px 20px',
+                textAlign: 'center',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '12px',
+                background: 'var(--bg-subtle)',
+              }}
+            >
               <div
                 style={{
-                  height: '320px',
-                  background: fallbackBackground,
+                  width: '52px',
+                  height: '52px',
+                  borderRadius: '50%',
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  color: '#ef4444',
                   display: 'flex',
-                  flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: 'white',
-                  gap: '12px',
-                  padding: '20px',
-                  textAlign: 'center',
                 }}
               >
-                <img
-                  src={`${import.meta.env.BASE_URL}logo.svg`}
-                  alt="Viralhoods Real Logo"
-                  style={{ width: '120px', height: '86px', filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))' }}
-                />
-                <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>Viralhoods Sector Report</span>
+                <Play size={24} fill="#ef4444" />
               </div>
-            )}
-          </div>
-
-          {/* Video Player / Embed Section if Story Contains Video */}
-          {enrichedStory.videoUrl && (
-            <div
-              className="article-video-container"
-              style={{
-                margin: '24px 0 28px',
-                borderRadius: 'var(--radius-lg)',
-                overflow: 'hidden',
-                background: 'var(--bg-subtle)',
-                border: '1px solid var(--line)',
-                boxShadow: 'var(--shadow-sm)',
-              }}
-            >
-              <div
+              <div>
+                <h4 style={{ margin: '0 0 6px', fontSize: '1.05rem', fontWeight: 700 }}>
+                  Official Video Attached
+                </h4>
+                <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+                  Verified multimedia broadcast is linked to this story.
+                </p>
+              </div>
+              <a
+                href={enrichedStory.videoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 style={{
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '12px 18px',
-                  background: 'var(--bg)',
-                  borderBottom: '1px solid var(--line)',
-                  fontSize: '0.88rem',
+                  gap: '6px',
+                  padding: '9px 18px',
+                  background: '#ef4444',
+                  color: '#ffffff',
+                  borderRadius: 'var(--radius-md)',
+                  textDecoration: 'none',
                   fontWeight: 700,
+                  fontSize: '0.9rem',
+                  marginTop: '4px',
                 }}
               >
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
-                  <Play size={16} fill="#ef4444" />
-                  <span style={{ color: 'var(--fg)' }}>Video Coverage & Multimedia Evidence</span>
-                </div>
-                <a
-                  href={enrichedStory.videoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    color: 'var(--blue)',
-                    fontSize: '0.82rem',
-                    textDecoration: 'none',
-                    fontWeight: 600,
-                  }}
-                >
-                  Source Video <ExternalLink size={13} />
-                </a>
-              </div>
-
-              {getYouTubeId(enrichedStory.videoUrl) ? (
-                <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
-                  <iframe
-                    src={`https://www.youtube-nocookie.com/embed/${getYouTubeId(enrichedStory.videoUrl)}?rel=0`}
-                    title={enrichedStory.title}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      height: '100%',
-                      border: 0,
-                    }}
-                  />
-                </div>
-              ) : enrichedStory.videoUrl.match(/\.(mp4|webm|m3u8)(\?|$)/i) ? (
-                <video
-                  controls
-                  src={enrichedStory.videoUrl}
-                  style={{ width: '100%', maxHeight: '480px', background: '#000' }}
-                />
-              ) : (
-                <div
-                  style={{
-                    padding: '24px 20px',
-                    textAlign: 'center',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '12px',
-                    background: 'var(--bg-subtle)',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: '52px',
-                      height: '52px',
-                      borderRadius: '50%',
-                      background: 'rgba(239, 68, 68, 0.12)',
-                      color: '#ef4444',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Play size={24} fill="#ef4444" />
-                  </div>
-                  <div>
-                    <h4 style={{ margin: '0 0 6px', fontSize: '1.05rem', fontWeight: 700 }}>
-                      Official Video Attached
-                    </h4>
-                    <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
-                      Verified multimedia broadcast is linked to this story.
-                    </p>
-                  </div>
-                  <a
-                    href={enrichedStory.videoUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      padding: '9px 18px',
-                      background: '#ef4444',
-                      color: '#ffffff',
-                      borderRadius: 'var(--radius-md)',
-                      textDecoration: 'none',
-                      fontWeight: 700,
-                      fontSize: '0.9rem',
-                      marginTop: '4px',
-                    }}
-                  >
-                    <Play size={16} fill="white" /> Watch Video On Source Platform <ExternalLink size={14} />
-                  </a>
-                </div>
-              )}
+                <Play size={16} fill="white" /> Watch Video On Source Platform <ExternalLink size={14} />
+              </a>
             </div>
           )}
+        </div>
+      )}
 
-          {/* Key Takeaways Callout */}
-          {enrichedStory.keyTakeaways && enrichedStory.keyTakeaways.length > 0 && (
-            <div className="takeaways-box">
-              <h4>
-                <Sparkles size={18} style={{ color: 'var(--sun)' }} />
-                Executive Takeaways
-              </h4>
-              <ul className="takeaways-list">
-                {enrichedStory.keyTakeaways.map((takeaway, idx) => (
-                  <li key={idx}>{takeaway}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* In-Depth Article Content */}
-          <div className="article-body">
-            {enrichedStory.content?.map((paragraph, index) => (
-              <p key={index}>{renderParagraphWithLinks(sanitizeHtmlText(paragraph))}</p>
+      {/* Key Takeaways Callout */}
+      {enrichedStory.keyTakeaways && enrichedStory.keyTakeaways.length > 0 && (
+        <div className="takeaways-box">
+          <h4>
+            <Sparkles size={18} style={{ color: 'var(--sun)' }} />
+            Executive Takeaways
+          </h4>
+          <ul className="takeaways-list">
+            {enrichedStory.keyTakeaways.map((takeaway, idx) => (
+              <li key={idx}>{takeaway}</li>
             ))}
-          </div>
+          </ul>
+        </div>
+      )}
 
-          {/* Editorial Section: Why It Matters */}
-          {enrichedStory.whyItMatters && (
-            <div className="editorial-section">
-              <h4>
-                <Layers size={18} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
-                Why It Matters
-              </h4>
-              <p>{sanitizeHtmlText(enrichedStory.whyItMatters)}</p>
-            </div>
-          )}
+      {/* In-Depth Article Content */}
+      <div className="article-body">
+        {enrichedStory.content?.map((paragraph, index) => (
+          <p key={index}>{renderParagraphWithLinks(sanitizeHtmlText(paragraph))}</p>
+        ))}
+      </div>
 
-          {/* Editorial Section: What's Next */}
-          {enrichedStory.whatNext && (
-            <div className="editorial-section">
-              <h4>
-                <Compass size={18} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
-                What's Next
-              </h4>
-              <p>{sanitizeHtmlText(enrichedStory.whatNext)}</p>
-            </div>
-          )}
+      {/* Editorial Section: Why It Matters */}
+      {enrichedStory.whyItMatters && (
+        <div className="editorial-section">
+          <h4>
+            <Layers size={18} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
+            Why It Matters
+          </h4>
+          <p>{sanitizeHtmlText(enrichedStory.whyItMatters)}</p>
+        </div>
+      )}
 
-          {/* Social Media Sharing Component */}
-          <SocialShareBar
-            title={enrichedStory.title}
-            storyId={story.id}
-            category={enrichedStory.category}
-            summary={enrichedStory.summary}
-            variant="full"
-          />
+      {/* Editorial Section: What's Next */}
+      {enrichedStory.whatNext && (
+        <div className="editorial-section">
+          <h4>
+            <Compass size={18} style={{ display: 'inline', verticalAlign: '-3px', marginRight: '6px' }} />
+            What's Next
+          </h4>
+          <p>{sanitizeHtmlText(enrichedStory.whatNext)}</p>
+        </div>
+      )}
 
+      {/* Social Media Sharing Component */}
+      <SocialShareBar
+        title={enrichedStory.title}
+        storyId={story.id}
+        category={enrichedStory.category}
+        summary={enrichedStory.summary}
+        variant="full"
+      />
+
+      {showNewsletter && (
+        <>
           {/* In-Article Newsletter Banner */}
           <div style={{ margin: '40px 0 30px' }}>
             <NewsletterBanner
@@ -614,42 +558,226 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
               Thank you! You are now subscribed to the Viralhoods Daily Briefing.
             </div>
           )}
+        </>
+      )}
+    </article>
+  );
+};
 
-          {/* Related Internal Stories */}
-          {relatedStories.length > 0 && (
-            <div style={{ marginTop: '40px', paddingTop: '28px', borderTop: '1px solid var(--line)' }}>
-              <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px' }}>
-                More from Viralhoods {enrichedStory.category}
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                {relatedStories.map((rel) => (
-                  <div
-                    key={rel.id}
-                    onClick={() => onOpenStory(rel)}
-                    style={{
-                      padding: '14px 18px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--line)',
-                      background: 'var(--bg-subtle)',
-                      cursor: 'pointer',
-                      transition: 'border-color 0.15s ease',
-                    }}
-                  >
-                    <div style={{ fontSize: '0.8rem', color: 'var(--blue)', fontWeight: 700, marginBottom: '4px' }}>
-                      {rel.category} · {formatAgo(rel.date)}
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--fg)' }}>
-                      {rel.title}
-                    </div>
-                    <div style={{ fontSize: '0.88rem', color: 'var(--fg-muted)', marginTop: '4px' }}>
-                      {rel.summary.slice(0, 140)}...
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </article>
+export const ArticleView: React.FC<ArticleViewProps> = ({
+  story,
+  allStories,
+  bookmarks,
+  onToggleBookmark,
+  onBack,
+  onSubscribe,
+}) => {
+  const [loadedStories, setLoadedStories] = useState<NewsItem[]>([story]);
+  const [activeStoryId, setActiveStoryId] = useState<string>(story.id);
+  const [isSpeakingId, setIsSpeakingId] = useState<string | null>(null);
+  const [scrollProgress, setScrollProgress] = useState(0);
+
+  const trackedIdsRef = useRef<Set<string>>(new Set([story.id]));
+  const blockNodesRef = useRef<Map<string, HTMLElement>>(new Map());
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // A fresh navigation (feed click, hash link, browser back/forward)
+  // resets the whole stack back to just the one requested story. Our own
+  // continuous-scroll appends never change this `story` prop — see the
+  // history.replaceState effect below — so this only fires on a genuine
+  // "go to a different story" action.
+  useEffect(() => {
+    setLoadedStories([story]);
+    setActiveStoryId(story.id);
+    trackedIdsRef.current = new Set([story.id]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [story]);
+
+  // Stop any in-progress read-aloud when leaving the article view entirely.
+  useEffect(() => {
+    return () => {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  // Overall reading-progress bar across everything loaded so far, rAF-
+  // throttled so a long continuous-scroll session doesn't re-render the
+  // whole stack on every single scroll-event tick.
+  useEffect(() => {
+    let ticking = false;
+    const update = () => {
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(totalHeight > 0 ? Math.min(100, Math.max(0, (window.scrollY / totalHeight) * 100)) : 0);
+      ticking = false;
+    };
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(update);
+        ticking = true;
+      }
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    update();
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const lastStory = loadedStories[loadedStories.length - 1];
+  const nextStory = useMemo(
+    () => pickNextStory(lastStory.category, allStories, trackedIdsRef.current),
+    [lastStory, allStories, loadedStories.length]
+  );
+
+  // Continuous scroll: append the next recommended story once the reader
+  // nears the bottom of the last one currently loaded.
+  useEffect(() => {
+    const node = sentinelRef.current;
+    if (!node || !nextStory) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          trackedIdsRef.current.add(nextStory.id);
+          setLoadedStories((prev) => (prev.some((s) => s.id === nextStory.id) ? prev : [...prev, nextStory]));
+        }
+      },
+      { rootMargin: '1000px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nextStory]);
+
+  // Scrollspy: whichever loaded story currently sits in the vertical
+  // center of the viewport becomes the "active" one.
+  useEffect(() => {
+    const nodes = loadedStories.map((s) => blockNodesRef.current.get(s.id)).filter((n): n is HTMLElement => !!n);
+    if (nodes.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const id = entry.target.getAttribute('data-story-id');
+            if (id) setActiveStoryId((cur) => (cur === id ? cur : id));
+          }
+        });
+      },
+      { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
+    );
+    nodes.forEach((n) => observer.observe(n));
+    return () => observer.disconnect();
+  }, [loadedStories]);
+
+  // Reflect the active story in the URL/tab title + analytics for
+  // everything after the first — App.tsx already tracks the first story on
+  // initial load, so this only fires for stories reached by scrolling.
+  // history.replaceState (not a hash assignment) deliberately does NOT
+  // fire `hashchange`, so this never disturbs App.tsx's own navigation
+  // state or resets the stack above.
+  useEffect(() => {
+    if (activeStoryId === story.id) return;
+    const active = loadedStories.find((s) => s.id === activeStoryId);
+    if (!active) return;
+    try {
+      window.history.replaceState(null, '', `#story-${activeStoryId}`);
+    } catch {
+      /* ignore */
+    }
+    document.title = `${active.title} | Viralhoods`;
+    trackPageVisit(`Story: ${active.title}`, `#story-${activeStoryId}`, {
+      storyId: activeStoryId,
+      storyTitle: active.title,
+      category: active.category,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the id should trigger this, not loadedStories/story identity churn
+  }, [activeStoryId]);
+
+  const registerBlockNode = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) blockNodesRef.current.set(id, el);
+    else blockNodesRef.current.delete(id);
+  }, []);
+
+  const handleToggleSpeechFor = useCallback((target: NewsItem) => {
+    if (!('speechSynthesis' in window)) return;
+    if (isSpeakingId === target.id) {
+      window.speechSynthesis.cancel();
+      setIsSpeakingId(null);
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const enriched = enrichStoryWithFullContent(target);
+    const textToRead = `${enriched.title}. ${enriched.summary}. Key Takeaways: ${enriched.keyTakeaways?.join('. ')}. ${enriched.content?.slice(0, 2).join(' ')}`;
+    const utterance = new SpeechSynthesisUtterance(textToRead);
+    utterance.rate = 1.0;
+    utterance.onend = () => setIsSpeakingId((cur) => (cur === target.id ? null : cur));
+    utterance.onerror = () => setIsSpeakingId((cur) => (cur === target.id ? null : cur));
+    window.speechSynthesis.speak(utterance);
+    setIsSpeakingId(target.id);
+  }, [isSpeakingId]);
+
+  return (
+    <>
+      {/* Scroll Reading Progress Bar at the top of the viewport */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: `${scrollProgress}%`,
+          height: '3.5px',
+          background: 'linear-gradient(90deg, var(--blue), var(--sun))',
+          zIndex: 100,
+          transition: 'width 0.1s ease-out',
+        }}
+        aria-hidden="true"
+      />
+
+      <main className="w article-view">
+        <button className="back-btn" onClick={onBack}>
+          <ArrowLeft size={16} /> Back to Trending Stories
+        </button>
+
+        {loadedStories.map((s, index) => (
+          <React.Fragment key={s.id}>
+            {index > 0 && <UpNextDivider category={s.category} />}
+            <ArticleBlock
+              story={s}
+              isBookmarked={bookmarks.includes(s.id)}
+              onToggleBookmark={onToggleBookmark}
+              isSpeaking={isSpeakingId === s.id}
+              onToggleSpeech={() => handleToggleSpeechFor(s)}
+              registerNode={registerBlockNode}
+              showNewsletter={index === 0}
+              onSubscribe={onSubscribe}
+            />
+          </React.Fragment>
+        ))}
+
+        {nextStory ? (
+          <div ref={sentinelRef} style={{ padding: '30px 0 50px', textAlign: 'center', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+            Loading the next story...
+          </div>
+        ) : (
+          <div
+            style={{
+              textAlign: 'center',
+              padding: '48px 24px',
+              marginTop: '20px',
+              borderTop: '1px solid var(--line)',
+            }}
+          >
+            <PartyPopper size={30} style={{ color: 'var(--sun)' }} />
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '14px 0 8px' }}>You're all caught up</h3>
+            <p style={{ color: 'var(--fg-muted)', maxWidth: '420px', margin: '0 auto 20px', lineHeight: 1.5 }}>
+              That's every story we've got queued up for you right now — check back soon for more.
+            </p>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={onBack}
+              style={{ maxWidth: '240px', margin: '0 auto', padding: '10px 20px' }}
+            >
+              Back to Trending Stories
+            </button>
+          </div>
+        )}
       </main>
     </>
   );
