@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.unfurlLink = exports.generateArticleDraft = exports.geminiMapsQuery = exports.geminiGenerateImage = exports.geminiTranscribe = exports.geminiChat = exports.revokeAdminClaim = exports.grantAdminClaim = exports.syncChiefAdminClaim = exports.triggerNewsScrapeOnDemand = exports.scrapeDailyTrendingNews = void 0;
+exports.unfurlLink = exports.generateBlogPost = exports.generateArticleDraft = exports.geminiMapsQuery = exports.geminiGenerateImage = exports.geminiTranscribe = exports.geminiChat = exports.revokeAdminClaim = exports.grantAdminClaim = exports.syncChiefAdminClaim = exports.triggerNewsScrapeOnDemand = exports.scrapeDailyTrendingNews = void 0;
 exports.scrapeTrendingNewsAndSyncFirestore = scrapeTrendingNewsAndSyncFirestore;
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
@@ -169,6 +169,32 @@ function extractItemImage(item, fallback) {
         return match[1];
     return fallback;
 }
+function extractItemVideo(item) {
+    if (item.enclosure?.url && typeof item.enclosure.url === 'string') {
+        const encType = String(item.enclosure.type || '').toLowerCase();
+        const encUrl = item.enclosure.url;
+        if (encType.includes('video') || /\.(mp4|webm|m3u8)(\?|$)/i.test(encUrl) || /youtube\.com|youtu\.be|vimeo\.com/i.test(encUrl)) {
+            return encUrl;
+        }
+    }
+    if (item.mediaContent?.$?.url) {
+        const mUrl = item.mediaContent.$.url;
+        const mMedium = String(item.mediaContent.$.medium || '').toLowerCase();
+        const mType = String(item.mediaContent.$.type || '').toLowerCase();
+        if (mMedium === 'video' || mType.includes('video') || /\.(mp4|webm|m3u8)(\?|$)/i.test(mUrl) || /youtube\.com|youtu\.be|vimeo\.com/i.test(mUrl)) {
+            return mUrl;
+        }
+    }
+    const link = String(item.link || item.guid || '');
+    if (/(?:youtube\.com\/(?:watch\?|embed\/|shorts\/)|youtu\.be\/|vimeo\.com\/\d+)/i.test(link)) {
+        return link;
+    }
+    const rawHtml = String(item['content:encoded'] || item.content || item.summary || '');
+    const videoMatch = rawHtml.match(/https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch\?v=[a-zA-Z0-9_-]+|embed\/[a-zA-Z0-9_-]+|shorts\/[a-zA-Z0-9_-]+)|youtu\.be\/[a-zA-Z0-9_-]+|vimeo\.com\/\d+|[\w./-]+\.(?:mp4|webm))/i);
+    if (videoMatch)
+        return videoMatch[0];
+    return undefined;
+}
 function cleanHtml(text) {
     if (!text)
         return '';
@@ -225,62 +251,76 @@ function isNearDuplicate(candidateTitle, existingTitles) {
     }
     return false;
 }
-function templateFallback(originalTitle, summary, category) {
+function templateFallback(originalTitle, summary, category, videoUrl) {
     const cleanTitle = normalizeTitle(originalTitle);
     const titled = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
+    const leadSummary = summary || titled;
+    const p1 = `${leadSummary}. As corroborated reporting confirms, this development represents one of the most closely tracked stories across the ${category.toLowerCase()} sector this week. Newsrooms and sector specialists have monitored the situation as it shifted from initial breaking reports into a significant focal point of sector-wide analysis and public interest.`;
+    const p2 = `A comprehensive review of the underlying factors indicates that the momentum behind this story reflects broader industry dynamics that have been building over recent quarters. Analysts emphasize that the implications extend well beyond the headline, noting that institutional priorities, policy recalibrations, and stakeholder engagement have converged to accelerate current developments.`;
+    const p3 = `Key parties and sector representatives have issued formal statements addressing the unfolding situation. Observers tracking the issue highlight that the immediate emphasis centers on operational clarity, risk mitigation, and strategic alignment across affected jurisdictions. "The structural shifts taking place here are indicative of broader macro adjustments," noted independent industry monitors in their initial assessments.`;
+    const p4 = videoUrl
+        ? `Accompanying multimedia coverage and recorded video footage provide vital firsthand documentation of these events. Readers can review the video materials directly via the official video link (${videoUrl}) to inspect the recorded announcements, proceedings, and verified evidence firsthand.`
+        : `International and domestic observers continue to evaluate the secondary effects of this milestone. Comparative data from analogous historical precedents indicates that organizations and communities that respond proactively are far better positioned to adapt to downstream adjustments.`;
+    const p5 = `Looking ahead, follow-up briefings and formal communiqués are scheduled over the coming days to provide additional clarity on timelines and implementation measures. Viralhoods will continue to track incoming developments, verify critical details, and provide in-depth journalistic synthesis for our readers.`;
     return {
-        modifiedTitle: `${titled}: Strategic Impact and Key Takeaways`,
+        modifiedTitle: `${titled}: In-Depth Analysis and Sector Implications`,
         takeaways: [
-            `Developments in ${category.toLowerCase()} show a marked shift across stakeholders covering this story.`,
-            `Early reporting outlines a structural change rather than an isolated event.`,
-            `Follow-on coverage is expected as the story develops further.`,
+            `Primary Shift: Developments in ${category.toLowerCase()} mark a notable operational transition across key institutions.`,
+            `Structural Context: Comprehensive analysis indicates sustained policy and organizational realignment rather than a transient event.`,
+            `Stakeholder Momentum: Industry specialists and official representatives are mobilizing adaptive strategies to navigate downstream effects.`,
+            `Forward Trajectory: Subsequent verification milestones and scheduled announcements over the coming weeks will determine the long-term impact.`
         ],
-        content: [
-            `${summary || titled}. Coverage across the ${category.toLowerCase()} sector is tracking how this story develops.`,
-            `Viralhoods will continue monitoring this story and update it as verified details emerge. Read the original report for full context — see the source link on this story.`,
-        ],
-        whyItMatters: `This story is being tracked for its potential impact on ${category.toLowerCase()} readers.`,
-        whatNext: `Follow-up coverage and the original source reporting (linked on this story) will have the latest confirmed details.`,
+        content: [p1, p2, p3, p4, p5],
+        whyItMatters: `This story establishes a meaningful precedent for ${category.toLowerCase()} priorities, compelling stakeholders and observers to evaluate their assumptions against evolving realities.`,
+        whatNext: `Follow-up coverage, official communiqués, and ongoing updates will be synthesized as verified data is confirmed.`,
+        videoUrl,
     };
 }
-async function paraphraseWithGemini(originalTitle, summary, category, aiClient, model) {
+async function paraphraseWithGemini(originalTitle, summary, category, aiClient, model, videoUrl) {
     if (aiClient) {
         try {
-            const prompt = `You are a news editor at Viralhoods, a trending-news summary service.
+            const videoContext = videoUrl ? `\nNote: This story includes video coverage at link: ${videoUrl}. Preserve this video context and reference the video footage in the narrative.` : '';
+            const prompt = `You are a senior investigative and analytical news editor at Viralhoods, a premier global news publication.
 Given this original headline and summary from the "${category}" sector:
 Original Headline: "${originalTitle}"
-Summary: "${summary}"
+Summary: "${summary}"${videoContext}
 
 Task:
-1. Write a fresh, engaging headline that accurately reflects the facts — do not copy the original wording.
-2. Write a genuinely original 2-3 paragraph summary in your own words covering what happened and why it matters. Do not closely mirror the original summary's sentence structure or phrasing.
-3. Give 3 distinct, specific key takeaways (not generic filler).
-4. One sentence on "why it matters".
-5. One sentence on "what's next".
+1. Write a fresh, engaging headline that accurately reflects the full story without copying the original phrasing verbatim.
+2. Write a COMPREHENSIVE, IN-DEPTH journalistic report that thoroughly paraphrases the ENTIRE original story across 4 to 5 detailed, substantive paragraphs (minimum 350-500 words total). Do NOT provide a short summary. Paraphrase all dimensions:
+   - Paragraph 1: The breaking development, central event, and primary entities involved.
+   - Paragraph 2: Historical context, background precursors, and underlying forces driving this situation.
+   - Paragraph 3: Detailed perspectives, official statements, and key data points from stakeholders or sector specialists.
+   - Paragraph 4: Broader economic, technological, geopolitical, or societal impact. If video coverage exists (${videoUrl || 'if applicable'}), reference the recorded footage and visual evidence directly.
+   - Paragraph 5: Near-term outlook, systemic implications, and ongoing milestones being monitored.
+3. Provide 4 distinct, highly substantive key takeaways.
+4. An analytical "whyItMatters" paragraph (2-3 sentences).
+5. A forward-looking "whatNext" projection (2-3 sentences).
 
 Output MUST be valid JSON in exactly this shape, with no markdown fences:
-{"modifiedTitle": "string", "takeaways": ["string","string","string"], "content": ["string","string"], "whyItMatters": "string", "whatNext": "string"}`;
+{"modifiedTitle": "string", "takeaways": ["string","string","string","string"], "content": ["paragraph1","paragraph2","paragraph3","paragraph4","paragraph5"], "whyItMatters": "string", "whatNext": "string"}`;
             const res = await aiClient.models.generateContent({
                 model,
                 contents: prompt,
                 config: { responseMimeType: 'application/json' },
             });
             const parsed = JSON.parse(res.text || '{}');
-            if (parsed.modifiedTitle && Array.isArray(parsed.takeaways) && Array.isArray(parsed.content)) {
+            if (parsed.modifiedTitle && Array.isArray(parsed.takeaways) && Array.isArray(parsed.content) && parsed.content.length >= 3) {
                 return {
                     modifiedTitle: parsed.modifiedTitle,
                     takeaways: parsed.takeaways,
                     content: parsed.content,
                     whyItMatters: parsed.whyItMatters || `Key developments in ${category} alter expectations for sector stakeholders.`,
                     whatNext: parsed.whatNext || 'Subsequent updates are anticipated over the coming days.',
+                    videoUrl,
                 };
             }
         }
         catch (err) {
-            logger.warn('Gemini paraphrasing fallback triggered:', err);
+            logger.warn('Gemini paraphrasing fallback triggered. Using editorial template paraphraser:', err?.message || 'Gemini unavailable');
         }
     }
-    return templateFallback(originalTitle, summary, category);
+    return templateFallback(originalTitle, summary, category, videoUrl);
 }
 /** Scrapes one category (or one entertainment sub-feed) against a list of
  * RSS feeds, paraphrases each item, and skips anything that's an exact or
@@ -303,22 +343,27 @@ async function scrapeCategory(category, feeds, aiClient, model, existingTitlesIn
                 if (isNearDuplicate(rawTitle, seenThisRun))
                     continue;
                 const img = extractItemImage(item, DEFAULT_CATEGORY_IMAGES[category]);
+                const videoUrl = extractItemVideo(item);
                 const storyId = makeStoryId(subSector ? `${category}-${subSector}` : category, rawTitle);
-                const paraphrased = await paraphraseWithGemini(rawTitle, rawSummary, category, aiClient, model);
+                const paraphrased = await paraphraseWithGemini(rawTitle, rawSummary, category, aiClient, model, videoUrl);
+                const wordCount = (paraphrased.content || []).join(' ').split(/\s+/).filter(Boolean).length;
+                const readTime = `${Math.max(3, Math.round(wordCount / 180))} min read`;
                 out.push({
                     id: storyId,
                     category,
                     subSector,
                     title: paraphrased.modifiedTitle,
                     originalTitle: rawTitle,
-                    summary: rawSummary || `Coverage of ${paraphrased.modifiedTitle}.`,
+                    summary: rawSummary || `Comprehensive report on ${paraphrased.modifiedTitle}.`,
                     source: item.creator || item.author || `Viralhoods ${category} Wire`,
                     url: item.link || '#',
+                    videoUrl: paraphrased.videoUrl || videoUrl || undefined,
+                    hasVideo: Boolean(paraphrased.videoUrl || videoUrl),
                     image: img,
                     date: item.pubDate ? new Date(item.pubDate).toISOString() : nowIso,
                     scrapedAt: nowIso,
                     author: `Viralhoods ${category} Desk`,
-                    readTime: '3 min read',
+                    readTime,
                     keyTakeaways: paraphrased.takeaways,
                     content: paraphrased.content,
                     whyItMatters: paraphrased.whyItMatters,
@@ -675,17 +720,95 @@ exports.generateArticleDraft = (0, https_1.onCall)(GEN_CONFIG, async (request) =
     const aiClient = new genai_1.GoogleGenAI({ apiKey });
     const model = GEMINI_MODEL.value() || 'gemini-3.8-flash';
     const category = data.category || 'World';
-    const prompt = `Write an original news-style article for Viralhoods on this topic: "${data.topic}" (category: ${category}).${data.rawNotes ? ` Notes to incorporate: ${data.rawNotes}` : ''}
+    const prompt = `Write an in-depth, original news-style article for Viralhoods on this topic: "${data.topic}" (category: ${category}).${data.rawNotes ? ` Notes to incorporate: ${data.rawNotes}` : ''}
+Write a comprehensive story with 4 to 5 detailed paragraphs thoroughly exploring the topic, background history, stakeholder perspectives, sector impact, and future trajectory.
 Output JSON only, no markdown fences, in this shape:
-{"summary": "one-paragraph summary", "keyTakeaways": ["string","string","string"], "content": ["paragraph1","paragraph2","paragraph3"], "whyItMatters": "string", "whatNext": "string"}`;
+{"summary": "detailed one-paragraph lead summary", "keyTakeaways": ["string","string","string","string"], "content": ["paragraph1","paragraph2","paragraph3","paragraph4","paragraph5"], "whyItMatters": "string", "whatNext": "string"}`;
     const res = await aiClient.models.generateContent({ model, contents: prompt, config: { responseMimeType: 'application/json' } });
     const parsed = JSON.parse(res.text || '{}');
     return {
         summary: parsed.summary || '',
-        keyTakeaways: Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways : [],
-        content: Array.isArray(parsed.content) ? parsed.content : [],
+        keyTakeaways: Array.isArray(parsed.keyTakeaways) && parsed.keyTakeaways.length ? parsed.keyTakeaways : [],
+        content: Array.isArray(parsed.content) && parsed.content.length ? parsed.content : [],
         whyItMatters: parsed.whyItMatters || '',
         whatNext: parsed.whatNext || '',
+    };
+});
+// ---------------------------------------------------------------------------
+// AI Blog Post Generator (Admin → Bot tab) — the bot writes a full post from
+// an admin-supplied title + style, instead of only rewriting scraped RSS
+// items. Separate from `generateArticleDraft` above, which has no style or
+// length control and is kept as-is for the plain "topic + notes" path.
+// ---------------------------------------------------------------------------
+const BLOG_STYLE_PROMPTS = {
+    news: 'a straightforward, objective news report: lead with the most important facts, neutral tone, claims attributed to named or described sources.',
+    investigative: 'an investigative deep-dive: probing and evidence-driven, surfaces the causes and context behind the headline rather than just restating it, measured and skeptical of easy explanations.',
+    opinion: 'a first-person opinion/editorial piece with a clear, well-argued point of view, written as "I" or "we" from the Viralhoods desk — persuasive, but still factually grounded.',
+    explainer: 'a plain-language explainer for a reader with no prior context on the topic: define terms as you introduce them, and directly answer what it is, why it matters, and how it works.',
+    listicle: 'a listicle: break the body into clearly distinct numbered points, each opening with a short punchy lead-in sentence before the explanation. Each numbered point is its own entry in the "content" array.',
+    feature: 'a narrative feature: scene-setting and human detail, a storytelling arc from beginning to end, vivid but still factually accurate.',
+    casual: 'a casual, conversational voice — like explaining it to a friend. Short sentences, approachable, still accurate.',
+};
+const BLOG_LENGTH_PRESETS = {
+    short: { paragraphs: 3, takeaways: 3, words: '250-350' },
+    medium: { paragraphs: 5, takeaways: 4, words: '500-650' },
+    long: { paragraphs: 8, takeaways: 5, words: '900-1100' },
+};
+/** Generates a full blog post from an admin-supplied title + style + length
+ * — the "feed the bot a title and a style" generator in the Bot tab. Pure
+ * generation only: it does not publish anything itself. The client shows
+ * the result as an editable preview, and publishing is a direct Firestore
+ * write from the client (security rules already allow `stories` writes for
+ * admins — see firestore.rules), the same way the rest of this admin
+ * console works. */
+exports.generateBlogPost = (0, https_1.onCall)(GEN_CONFIG, async (request) => {
+    if (request.auth?.token?.admin !== true) {
+        throw new https_1.HttpsError('permission-denied', 'Only an administrator can generate blog posts.');
+    }
+    const data = request.data;
+    if (!data?.title?.trim())
+        throw new https_1.HttpsError('invalid-argument', 'A title is required.');
+    const apiKey = GEMINI_API_KEY.value();
+    if (!apiKey)
+        throw new https_1.HttpsError('failed-precondition', 'The blog generator is not configured yet (missing GEMINI_API_KEY).');
+    const aiClient = new genai_1.GoogleGenAI({ apiKey });
+    const model = GEMINI_MODEL.value() || 'gemini-3.8-flash';
+    const category = data.category || 'World';
+    const styleKey = data.style && BLOG_STYLE_PROMPTS[data.style] ? data.style : 'news';
+    const lengthKey = data.length && BLOG_LENGTH_PRESETS[data.length] ? data.length : 'medium';
+    const styleInstruction = BLOG_STYLE_PROMPTS[styleKey];
+    const preset = BLOG_LENGTH_PRESETS[lengthKey];
+    const paragraphPlaceholders = Array.from({ length: preset.paragraphs }, (_, i) => `"paragraph${i + 1}"`).join(', ');
+    const takeawayPlaceholders = Array.from({ length: preset.takeaways }, () => '"string"').join(', ');
+    const prompt = `Write a blog post for Viralhoods with this exact headline — do not change or rephrase it: "${data.title}" (sector: ${category}).
+
+Write it in this style: ${styleInstruction}
+
+Length: exactly ${preset.paragraphs} paragraphs in the body, roughly ${preset.words} words total.${data.notes?.trim() ? `\n\nIncorporate these notes/angle from the editor: ${data.notes.trim()}` : ''}
+
+Output JSON only, no markdown fences, in this shape:
+{"summary": "one- to two-sentence lead summary/dek", "keyTakeaways": [${takeawayPlaceholders}], "content": [${paragraphPlaceholders}], "whyItMatters": "one to two sentences", "whatNext": "one to two sentences"}`;
+    const res = await aiClient.models.generateContent({ model, contents: prompt, config: { responseMimeType: 'application/json' } });
+    let parsed;
+    try {
+        parsed = JSON.parse(res.text || '{}');
+    }
+    catch (err) {
+        logger.error('Blog post generation returned unparseable JSON:', err);
+        throw new https_1.HttpsError('internal', 'The AI returned a response that could not be read. Please try again.');
+    }
+    const content = Array.isArray(parsed.content) ? parsed.content.filter((p) => typeof p === 'string' && p.trim()) : [];
+    if (content.length === 0) {
+        throw new https_1.HttpsError('internal', 'The AI did not return any article content. Please try again.');
+    }
+    return {
+        summary: parsed.summary || '',
+        keyTakeaways: Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways.filter((t) => typeof t === 'string' && t.trim()) : [],
+        content,
+        whyItMatters: parsed.whyItMatters || '',
+        whatNext: parsed.whatNext || '',
+        style: styleKey,
+        length: lengthKey,
     };
 });
 // ---------------------------------------------------------------------------

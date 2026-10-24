@@ -809,6 +809,99 @@ Output JSON only, no markdown fences, in this shape:
 });
 
 // ---------------------------------------------------------------------------
+// AI Blog Post Generator (Admin → Bot tab) — the bot writes a full post from
+// an admin-supplied title + style, instead of only rewriting scraped RSS
+// items. Separate from `generateArticleDraft` above, which has no style or
+// length control and is kept as-is for the plain "topic + notes" path.
+// ---------------------------------------------------------------------------
+
+const BLOG_STYLE_PROMPTS: Record<string, string> = {
+  news: 'a straightforward, objective news report: lead with the most important facts, neutral tone, claims attributed to named or described sources.',
+  investigative: 'an investigative deep-dive: probing and evidence-driven, surfaces the causes and context behind the headline rather than just restating it, measured and skeptical of easy explanations.',
+  opinion: 'a first-person opinion/editorial piece with a clear, well-argued point of view, written as "I" or "we" from the Viralhoods desk — persuasive, but still factually grounded.',
+  explainer: 'a plain-language explainer for a reader with no prior context on the topic: define terms as you introduce them, and directly answer what it is, why it matters, and how it works.',
+  listicle: 'a listicle: break the body into clearly distinct numbered points, each opening with a short punchy lead-in sentence before the explanation. Each numbered point is its own entry in the "content" array.',
+  feature: 'a narrative feature: scene-setting and human detail, a storytelling arc from beginning to end, vivid but still factually accurate.',
+  casual: 'a casual, conversational voice — like explaining it to a friend. Short sentences, approachable, still accurate.',
+};
+
+const BLOG_LENGTH_PRESETS: Record<string, { paragraphs: number; takeaways: number; words: string }> = {
+  short: { paragraphs: 3, takeaways: 3, words: '250-350' },
+  medium: { paragraphs: 5, takeaways: 4, words: '500-650' },
+  long: { paragraphs: 8, takeaways: 5, words: '900-1100' },
+};
+
+/** Generates a full blog post from an admin-supplied title + style + length
+ * — the "feed the bot a title and a style" generator in the Bot tab. Pure
+ * generation only: it does not publish anything itself. The client shows
+ * the result as an editable preview, and publishing is a direct Firestore
+ * write from the client (security rules already allow `stories` writes for
+ * admins — see firestore.rules), the same way the rest of this admin
+ * console works. */
+export const generateBlogPost = onCall(GEN_CONFIG, async (request) => {
+  if (request.auth?.token?.admin !== true) {
+    throw new HttpsError('permission-denied', 'Only an administrator can generate blog posts.');
+  }
+  const data = request.data as {
+    title?: string;
+    category?: string;
+    style?: string;
+    length?: string;
+    notes?: string;
+  };
+  if (!data?.title?.trim()) throw new HttpsError('invalid-argument', 'A title is required.');
+
+  const apiKey = GEMINI_API_KEY.value();
+  if (!apiKey) throw new HttpsError('failed-precondition', 'The blog generator is not configured yet (missing GEMINI_API_KEY).');
+  const aiClient = new GoogleGenAI({ apiKey });
+  const model = GEMINI_MODEL.value() || 'gemini-3.8-flash';
+
+  const category = data.category || 'World';
+  const styleKey = data.style && BLOG_STYLE_PROMPTS[data.style] ? data.style : 'news';
+  const lengthKey = data.length && BLOG_LENGTH_PRESETS[data.length] ? data.length : 'medium';
+  const styleInstruction = BLOG_STYLE_PROMPTS[styleKey];
+  const preset = BLOG_LENGTH_PRESETS[lengthKey];
+  const paragraphPlaceholders = Array.from({ length: preset.paragraphs }, (_, i) => `"paragraph${i + 1}"`).join(', ');
+  const takeawayPlaceholders = Array.from({ length: preset.takeaways }, () => '"string"').join(', ');
+
+  const prompt = `Write a blog post for Viralhoods with this exact headline — do not change or rephrase it: "${data.title}" (sector: ${category}).
+
+Write it in this style: ${styleInstruction}
+
+Length: exactly ${preset.paragraphs} paragraphs in the body, roughly ${preset.words} words total.${
+    data.notes?.trim() ? `\n\nIncorporate these notes/angle from the editor: ${data.notes.trim()}` : ''
+  }
+
+Output JSON only, no markdown fences, in this shape:
+{"summary": "one- to two-sentence lead summary/dek", "keyTakeaways": [${takeawayPlaceholders}], "content": [${paragraphPlaceholders}], "whyItMatters": "one to two sentences", "whatNext": "one to two sentences"}`;
+
+  const res = await aiClient.models.generateContent({ model, contents: prompt, config: { responseMimeType: 'application/json' } });
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(res.text || '{}');
+  } catch (err) {
+    logger.error('Blog post generation returned unparseable JSON:', err as any);
+    throw new HttpsError('internal', 'The AI returned a response that could not be read. Please try again.');
+  }
+
+  const content = Array.isArray(parsed.content) ? parsed.content.filter((p: unknown) => typeof p === 'string' && p.trim()) : [];
+  if (content.length === 0) {
+    throw new HttpsError('internal', 'The AI did not return any article content. Please try again.');
+  }
+
+  return {
+    summary: parsed.summary || '',
+    keyTakeaways: Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways.filter((t: unknown) => typeof t === 'string' && t.trim()) : [],
+    content,
+    whyItMatters: parsed.whyItMatters || '',
+    whatNext: parsed.whatNext || '',
+    style: styleKey,
+    length: lengthKey,
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Link unfurling for Community "link" posts (title/description/image, the
 // same idea as how Reddit or Twitter show a preview card for a pasted URL).
 // ---------------------------------------------------------------------------
