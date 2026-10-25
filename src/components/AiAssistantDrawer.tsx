@@ -88,21 +88,55 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
         text: m.text,
       }));
 
-      const geminiChat = httpsCallable(functions, 'geminiChat');
-      const res: any = await geminiChat({
-        messages: history,
-        model: selectedModel,
-        useSearch: useSearchGrounding,
-        activeSector,
-      });
+      let assistantText = '';
+      let searchGrounding: string[] = [];
 
-      const data = res.data || {};
+      // 1. Try local server API
+      try {
+        const resp = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: history,
+            model: selectedModel,
+            useSearch: useSearchGrounding,
+            activeSector,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          assistantText = data.text || '';
+          searchGrounding = data.searchGrounding || [];
+        }
+      } catch {
+        // Fall back to Cloud Function
+      }
+
+      // 2. Fall back to Cloud Function
+      if (!assistantText) {
+        const geminiChat = httpsCallable(functions, 'geminiChat');
+        const res: any = await geminiChat({
+          messages: history,
+          model: selectedModel,
+          useSearch: useSearchGrounding,
+          activeSector,
+        });
+
+        const data = res.data || {};
+        assistantText = data.text || '';
+        searchGrounding = data.searchGrounding || [];
+      }
+
+      if (!assistantText) {
+        throw new Error('No response generated');
+      }
+
       const assistantMsg: ChatMessage = {
         id: 'bot_' + Date.now(),
         role: 'assistant',
-        text: data.text || 'No response generated.',
+        text: assistantText,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        groundingQueries: data.searchGrounding || [],
+        groundingQueries: searchGrounding,
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -114,19 +148,13 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
         utter.rate = 1.05;
         window.speechSynthesis.speak(utter);
       }
-    } catch (err: any) {
-      const friendly =
-        err?.code === 'functions/unauthenticated'
-          ? 'Please sign in to use the AI Assistant.'
-          : err?.code === 'functions/failed-precondition'
-          ? 'The AI Assistant isn\u2019t fully configured yet on the server side.'
-          : err?.message || 'Check your internet connection and try again.';
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
           id: 'err_' + Date.now(),
           role: 'assistant',
-          text: `Apologies, I encountered an error: ${friendly}`,
+          text: 'Not working at the moment, try back later',
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -166,16 +194,45 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
             const base64Audio = (reader.result as string).split(',')[1];
             setIsLoading(true);
             try {
-              const geminiTranscribe = httpsCallable(functions, 'geminiTranscribe');
-              const transRes: any = await geminiTranscribe({
-                audioBase64: base64Audio,
-                mimeType: 'audio/webm',
-              });
-              if (transRes.data?.text) {
-                setInputText(transRes.data.text);
+              let textResult = '';
+              try {
+                const resp = await fetch('/api/ai/transcribe', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ audioBase64: base64Audio, mimeType: 'audio/webm' }),
+                });
+                if (resp.ok) {
+                  const data = await resp.json();
+                  textResult = data.text || '';
+                }
+              } catch {
+                // Fall back to Cloud Function
               }
-            } catch (err) {
-              console.error('Transcription failed:', err);
+
+              if (!textResult) {
+                const geminiTranscribe = httpsCallable(functions, 'geminiTranscribe');
+                const transRes: any = await geminiTranscribe({
+                  audioBase64: base64Audio,
+                  mimeType: 'audio/webm',
+                });
+                textResult = transRes.data?.text || '';
+              }
+
+              if (textResult) {
+                setInputText(textResult);
+              } else {
+                throw new Error('Transcription failed');
+              }
+            } catch {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: 'err_' + Date.now(),
+                  role: 'assistant',
+                  text: 'Not working at the moment, try back later',
+                  timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                },
+              ]);
             } finally {
               setIsLoading(false);
             }
@@ -184,13 +241,13 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
 
         mediaRecorder.start();
         setIsRecording(true);
-      } catch (err) {
+      } catch {
         setMessages((prev) => [
           ...prev,
           {
             id: 'mic_err_' + Date.now(),
             role: 'assistant',
-            text: 'Microphone access is unavailable or was denied. You can type your questions in the message bar.',
+            text: 'Not working at the moment, try back later',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           },
         ]);

@@ -924,24 +924,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
         readTime: `${Math.max(2, Math.round(wordCount / 180))} min read`,
       });
     } catch (err: any) {
-      if (err?.code === 'functions/permission-denied') {
-        setBlogGenNotice('Only an administrator can generate blog posts.');
-      } else {
-        console.warn('AI blog generation unavailable, using offline template:', err);
-        setBlogGenNotice(
-          'The AI writer could not be reached just now, so this is an offline placeholder draft — edit it below, or try Generate again in a moment.'
-        );
-        setBlogDraft(
-          generateOriginalStory({
-            topic: blogTitle,
-            category: blogCategory,
-            rawNotes: blogNotes,
-            imageUrl: blogImage,
-            style: blogStyle,
-            length: blogLength as 'short' | 'medium' | 'long',
-          })
-        );
-      }
+      console.warn('AI blog generation error:', err);
+      setBlogGenNotice('Not working at the moment, try back later');
+      setBlogDraft(
+        generateOriginalStory({
+          topic: blogTitle,
+          category: blogCategory,
+          rawNotes: blogNotes,
+          imageUrl: blogImage,
+          style: blogStyle,
+          length: blogLength as 'short' | 'medium' | 'long',
+        })
+      );
     } finally {
       setIsGeneratingBlog(false);
     }

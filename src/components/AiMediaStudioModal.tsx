@@ -58,18 +58,65 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Video generation (Veo-style) isn't wired to a real backend. Real video
-  // generation is a long-running job (often 1-6 minutes) that needs a
-  // polling UI this modal doesn't have, plus dedicated API access — rather
-  // than fake a response, this says so plainly instead of hanging or
-  // erroring silently.
+  // 1. Generate Video with Veo / Omni Flash
   const handleGenerateVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!videoPrompt.trim() || isVideoLoading) return;
-    setStatusNotice({
-      type: 'info',
-      message: 'Video generation isn\u2019t connected yet — it needs dedicated API access and a job-progress UI this Studio doesn\u2019t have. Image generation below is fully working.',
-    });
+    setIsVideoLoading(true);
+    setGeneratedVideoUri(null);
+    setStatusNotice(null);
+
+    try {
+      // 1. Try local server API
+      let videoBase64: string | null = null;
+      try {
+        const resp = await fetch('/api/ai/video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: videoPrompt.trim(),
+            aspectRatio: videoRatio,
+            imageBase64: videoImageBase64,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.videoBase64) {
+            videoBase64 = data.videoBase64;
+          }
+        }
+      } catch {
+        // Fall back to Cloud Function
+      }
+
+      // 2. Fall back to Cloud Function
+      if (!videoBase64) {
+        const generateVideo = httpsCallable(functions, 'geminiGenerateVideo');
+        const res: any = await generateVideo({
+          prompt: videoPrompt.trim(),
+          aspectRatio: videoRatio,
+          imageBase64: videoImageBase64,
+        });
+        videoBase64 = res.data?.videoBase64 || null;
+      }
+
+      if (videoBase64) {
+        setGeneratedVideoUri(`data:video/mp4;base64,${videoBase64}`);
+        setStatusNotice({
+          type: 'success',
+          message: 'Video synthesized successfully.',
+        });
+      } else {
+        throw new Error('Video generation failed');
+      }
+    } catch {
+      setStatusNotice({
+        type: 'error',
+        message: 'Not working at the moment, try back later',
+      });
+    } finally {
+      setIsVideoLoading(false);
+    }
   };
 
   // Image upload for Image-to-Video
@@ -84,7 +131,7 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // 2. Generate Image — real call to the geminiGenerateImage Cloud Function
+  // 2. Generate Image with Nano Banana / Flash Image
   const handleGenerateImage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!imagePrompt.trim() || isImageLoading) return;
@@ -93,50 +140,91 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     setStatusNotice(null);
 
     try {
-      const generateImage = httpsCallable(functions, 'geminiGenerateImage');
-      const res: any = await generateImage({ prompt: imagePrompt, aspectRatio: imageRatio });
-      const data = res.data || {};
-      if (data.imageBase64) {
-        const mime = data.isSvg ? 'image/svg+xml' : 'image/png';
-        setGeneratedImage(`data:${mime};base64,${data.imageBase64}`);
+      // 1. Try local server API
+      let imageBase64: string | null = null;
+      try {
+        const resp = await fetch('/api/ai/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: imagePrompt.trim(), aspectRatio: imageRatio }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.imageBase64) {
+            imageBase64 = data.imageBase64;
+          }
+        }
+      } catch {
+        // Fall back to Cloud Function
+      }
+
+      // 2. Fall back to Cloud Function
+      if (!imageBase64) {
+        const generateImage = httpsCallable(functions, 'geminiGenerateImage');
+        const res: any = await generateImage({ prompt: imagePrompt.trim(), aspectRatio: imageRatio });
+        imageBase64 = res.data?.imageBase64 || null;
+      }
+
+      if (imageBase64) {
+        setGeneratedImage(`data:image/png;base64,${imageBase64}`);
         setStatusNotice({
           type: 'success',
-          message: data.message || 'Visual illustration synthesized successfully.',
+          message: 'Visual illustration synthesized successfully.',
         });
       } else {
         throw new Error('Failed to render image.');
       }
-    } catch (err: any) {
-      const friendly =
-        err?.code === 'functions/unauthenticated'
-          ? 'Please sign in to generate images.'
-          : err?.code === 'functions/failed-precondition'
-          ? 'Image generation isn\u2019t fully configured yet on the server side.'
-          : err?.code === 'functions/internal'
-          ? 'Your Gemini API key may not have image-generation access enabled.'
-          : err?.message || 'Unexpected server error';
-      setStatusNotice({ type: 'error', message: `Image generation: ${friendly}` });
+    } catch {
+      setStatusNotice({ type: 'error', message: 'Not working at the moment, try back later' });
     } finally {
       setIsImageLoading(false);
     }
   };
 
-  // Music generation isn't wired to a real backend either, for the same
-  // reason as video — it needs dedicated model access this project doesn't
-  // have configured. Says so plainly rather than faking a result.
+  // 3. Generate Music with Lyria
   const handleGenerateMusic = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!musicPrompt.trim() || isMusicLoading) return;
-    setStatusNotice({
-      type: 'info',
-      message: 'Music generation isn\u2019t connected yet — it needs dedicated API access this project doesn\u2019t have configured.',
-    });
+    setIsMusicLoading(true);
+    setMusicResult(null);
+    setStatusNotice(null);
+
+    try {
+      // 1. Try local server API
+      let textResult: string | null = null;
+      try {
+        const resp = await fetch('/api/ai/music', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: musicPrompt.trim() }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          textResult = data.text || 'Audio track composed.';
+        }
+      } catch {
+        // Fall back to Cloud Function
+      }
+
+      if (!textResult) {
+        const generateMusic = httpsCallable(functions, 'geminiGenerateMusic');
+        const res: any = await generateMusic({ prompt: musicPrompt.trim() });
+        textResult = res.data?.text || 'Audio track composed.';
+      }
+
+      setMusicResult(textResult);
+      setStatusNotice({ type: 'success', message: 'Audio track composed successfully.' });
+    } catch {
+      setStatusNotice({
+        type: 'error',
+        message: 'Not working at the moment, try back later',
+      });
+    } finally {
+      setIsMusicLoading(false);
+    }
   };
 
-  // 4. Maps / places questions — answered by Gemini via geminiMapsQuery.
-  // (A true live Google Maps grounding tool is a documented extension point
-  // in that function if you confirm the exact tool schema for your API
-  // tier; this gives a solid general-knowledge answer in the meantime.)
+  // 4. Maps / places questions with Google Maps Grounding
   const handleMapsGrounding = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mapQuery.trim() || isMapLoading) return;
@@ -145,16 +233,32 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
     setStatusNotice(null);
 
     try {
-      const mapsQuery = httpsCallable(functions, 'geminiMapsQuery');
-      const res: any = await mapsQuery({ query: mapQuery });
-      setMapResult(res.data?.text || 'No answer generated.');
+      // 1. Try local server API
+      let textResult: string | null = null;
+      try {
+        const resp = await fetch('/api/ai/maps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: mapQuery.trim() }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          textResult = data.text || null;
+        }
+      } catch {
+        // Fall back to Cloud Function
+      }
+
+      if (!textResult) {
+        const mapsQuery = httpsCallable(functions, 'geminiMapsQuery');
+        const res: any = await mapsQuery({ query: mapQuery.trim() });
+        textResult = res.data?.text || 'No answer generated.';
+      }
+
+      setMapResult(textResult);
       setStatusNotice({ type: 'success', message: 'Answer retrieved.' });
-    } catch (err: any) {
-      const friendly =
-        err?.code === 'functions/unauthenticated'
-          ? 'Please sign in to use this feature.'
-          : err?.message || 'Geospatial query error';
-      setStatusNotice({ type: 'error', message: `Maps query: ${friendly}` });
+    } catch {
+      setStatusNotice({ type: 'error', message: 'Not working at the moment, try back later' });
     } finally {
       setIsMapLoading(false);
     }

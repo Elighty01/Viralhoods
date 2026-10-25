@@ -23,6 +23,7 @@ import {
   sendNewsletterDigest,
 } from './server/auth';
 import { runScraper } from './scripts/scrape';
+import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
@@ -186,6 +187,209 @@ app.post('/api/scraper/trigger', async (req, res) => {
   } catch (err: any) {
     console.error('Scraper trigger error:', err);
     return res.status(500).json({ error: err.message || 'Scraper failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI Assistant & Media Studio API Endpoints
+// ---------------------------------------------------------------------------
+
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const { messages = [], model = 'gemini-3.8-flash', useSearch = true, activeSector } = req.body || {};
+
+    const preamble = `You are the Viralhoods AI Intelligence Assistant. Be concise, factual, and helpful. Current sector: ${activeSector || 'All'}.`;
+    const contents: any[] = [
+      { role: 'user', parts: [{ text: preamble }] },
+      ...messages.map((m: any) => ({
+        role: m.role === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }],
+      })),
+    ];
+
+    let text = '';
+    let searchGrounding: string[] = [];
+    if (useSearch) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          config: { tools: [{ googleSearch: {} }] } as any,
+        });
+        text = response.text || '';
+        const chunks = (response as any)?.candidates?.[0]?.groundingMetadata?.webSearchQueries;
+        if (Array.isArray(chunks)) searchGrounding = chunks;
+      } catch {
+        // fallback to standard generation
+      }
+    }
+
+    if (!text) {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+      });
+      text = response.text || '';
+    }
+
+    return res.json({ text, searchGrounding });
+  } catch (err) {
+    console.error('Chat error:', err);
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  }
+});
+
+app.post('/api/ai/image', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const { prompt } = req.body || {};
+    if (!prompt) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite-image',
+      contents: prompt,
+      config: {
+        responseModalities: ['IMAGE'],
+      } as any,
+    });
+    const parts = (response as any)?.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find((p: any) => p.inlineData?.data);
+    if (imagePart) {
+      return res.json({ imageBase64: imagePart.inlineData.data });
+    }
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  } catch (err) {
+    console.error('Image generation error:', err);
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  }
+});
+
+app.post('/api/ai/video', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const { prompt, aspectRatio = '16:9', imageBase64 } = req.body || {};
+    if (!prompt) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+
+    let videoBase64: string | null = null;
+    if ((ai as any).interactions && typeof (ai as any).interactions.create === 'function') {
+      const inputPayload = imageBase64
+        ? [
+            { type: 'image', mime_type: 'image/png', data: imageBase64 },
+            { type: 'text', text: prompt },
+          ]
+        : prompt;
+
+      const interaction = await (ai as any).interactions.create(
+        {
+          model: 'gemini-omni-1.1-flash',
+          input: inputPayload,
+          background: false,
+          store: false,
+          stream: false,
+          response_format: {
+            type: 'video',
+            aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
+          },
+        },
+        { timeout: 300000 }
+      );
+      const videoPart = interaction?.output_video;
+      if (videoPart?.data) {
+        videoBase64 = videoPart.data;
+      }
+    }
+
+    if (videoBase64) {
+      return res.json({ videoBase64 });
+    }
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  } catch (err) {
+    console.error('Video generation error:', err);
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  }
+});
+
+app.post('/api/ai/music', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const { prompt } = req.body || {};
+    if (!prompt) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+
+    const response = await ai.models.generateContent({
+      model: 'lyria-3-clip-preview',
+      contents: prompt,
+    });
+    return res.json({ text: response.text || 'Audio track generated.' });
+  } catch (err) {
+    console.error('Music generation error:', err);
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  }
+});
+
+app.post('/api/ai/maps', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const { query } = req.body || {};
+    if (!query) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: `Provide an accurate, concise geographical and institutional report on: ${query}`,
+    });
+    return res.json({ text: response.text || '' });
+  } catch (err) {
+    console.error('Maps query error:', err);
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  }
+});
+
+app.post('/api/ai/transcribe', async (req, res) => {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    }
+    const ai = new GoogleGenAI({ apiKey });
+    const { audioBase64, mimeType = 'audio/webm' } = req.body || {};
+    if (!audioBase64) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.5-transcribe',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'Transcribe this audio clip to plain text. Reply with only the transcription, nothing else.' },
+            { inlineData: { mimeType, data: audioBase64 } },
+          ],
+        },
+      ],
+    });
+    return res.json({ text: (response.text || '').trim() });
+  } catch (err) {
+    console.error('Transcription error:', err);
+    return res.status(500).json({ error: 'Not working at the moment, try back later' });
   }
 });
 

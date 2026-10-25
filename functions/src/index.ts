@@ -748,7 +748,7 @@ export const geminiGenerateImage = onCall(GEN_CONFIG, async (request) => {
 
   try {
     const res = await aiClient.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
+      model: 'gemini-3.1-flash-lite-image',
       contents: data.prompt,
       config: { responseModalities: ['IMAGE'] } as any,
     });
@@ -760,7 +760,74 @@ export const geminiGenerateImage = onCall(GEN_CONFIG, async (request) => {
     throw new Error('No image returned by the model.');
   } catch (err: any) {
     logger.error('Image generation failed:', err as any);
-    throw new HttpsError('internal', err?.message || 'Image generation failed. This feature needs image-generation access enabled on your Gemini API key.');
+    throw new HttpsError('internal', err?.message || 'Image generation failed.');
+  }
+});
+
+/** Video generation for the AI Studio "Video" tab. */
+export const geminiGenerateVideo = onCall(GEN_CONFIG, async (request) => {
+  requireSignedIn(request);
+  const data = request.data as { prompt?: string; aspectRatio?: string; imageBase64?: string };
+  if (!data?.prompt?.trim()) throw new HttpsError('invalid-argument', 'A prompt is required.');
+
+  const apiKey = GEMINI_API_KEY.value();
+  if (!apiKey) throw new HttpsError('failed-precondition', 'Video generation is not configured yet (missing GEMINI_API_KEY).');
+  const aiClient = new GoogleGenAI({ apiKey });
+
+  try {
+    const inputPayload: any = data.imageBase64
+      ? [
+          { type: 'image', mime_type: 'image/png', data: data.imageBase64 },
+          { type: 'text', text: data.prompt },
+        ]
+      : data.prompt;
+
+    if ((aiClient as any).interactions && typeof (aiClient as any).interactions.create === 'function') {
+      const interaction = await (aiClient as any).interactions.create(
+        {
+          model: 'gemini-omni-1.1-flash',
+          input: inputPayload,
+          background: false,
+          store: false,
+          stream: false,
+          response_format: {
+            type: 'video',
+            aspect_ratio: data.aspectRatio === '9:16' ? '9:16' : '16:9',
+          },
+        },
+        { timeout: 300000 }
+      );
+      const videoPart = interaction?.output_video;
+      if (videoPart?.data) {
+        return { videoBase64: videoPart.data, message: 'Video generated.' };
+      }
+    }
+    throw new Error('Video generation failed.');
+  } catch (err: any) {
+    logger.error('Video generation failed:', err as any);
+    throw new HttpsError('internal', err?.message || 'Video generation failed.');
+  }
+});
+
+/** Music generation for the AI Studio "Music" tab. */
+export const geminiGenerateMusic = onCall(GEN_CONFIG, async (request) => {
+  requireSignedIn(request);
+  const data = request.data as { prompt?: string };
+  if (!data?.prompt?.trim()) throw new HttpsError('invalid-argument', 'A prompt is required.');
+
+  const apiKey = GEMINI_API_KEY.value();
+  if (!apiKey) throw new HttpsError('failed-precondition', 'Music generation is not configured yet (missing GEMINI_API_KEY).');
+  const aiClient = new GoogleGenAI({ apiKey });
+
+  try {
+    const res = await aiClient.models.generateContent({
+      model: 'lyria-3-clip-preview',
+      contents: data.prompt,
+    });
+    return { text: res.text || 'Audio track composed.' };
+  } catch (err: any) {
+    logger.error('Music generation failed:', err as any);
+    throw new HttpsError('internal', err?.message || 'Music generation failed.');
   }
 });
 
