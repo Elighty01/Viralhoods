@@ -603,6 +603,8 @@ export const App: React.FC = () => {
           onOpenAuth={handleOpenAuthWithMessage}
           entertainmentSubpage={entertainmentSubpage}
           onSelectEntertainmentSubpage={handleSelectEntertainmentSubpage}
+          onNavigateCommunity={() => handleNavigateView('community')}
+          onSelectCategory={handleSelectCategory}
         />
       )}
 

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { NewsItem, User, UnifiedSearchResponse } from '../types';
 import { NewsCard, formatAgo } from './NewsCard';
 import { NewsletterBanner } from './NewsletterBanner';
+import { Sidebar } from './Sidebar';
+import { CategoryShowcase } from './CategoryShowcase';
 import { lazy, Suspense } from 'react';
 import type { EntertainmentSubpage } from './EntertainmentHub';
 
@@ -40,6 +42,8 @@ interface FeedViewProps {
   onOpenAuth?: (message?: string) => void;
   entertainmentSubpage?: EntertainmentSubpage;
   onSelectEntertainmentSubpage?: (subpage: EntertainmentSubpage) => void;
+  onNavigateCommunity: () => void;
+  onSelectCategory: (category: string) => void;
 }
 
 export type SearchEngineMode = 'viralhoods' | 'google' | 'google-news';
@@ -60,6 +64,8 @@ export const FeedView: React.FC<FeedViewProps> = ({
   onOpenAuth,
   entertainmentSubpage = 'news',
   onSelectEntertainmentSubpage,
+  onNavigateCommunity,
+  onSelectCategory,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTab, setSearchTab] = useState<'all' | 'local' | 'google'>('all');
@@ -280,6 +286,13 @@ export const FeedView: React.FC<FeedViewProps> = ({
           </form>
         </div>
       </div>
+
+      {/* "What We Cover" sector showcase — only on the all-sectors home
+          state; a specific category page already has its tab highlighted,
+          so repeating a full sector grid there would just be noise. */}
+      {!searchQuery.trim() && category === 'All' && !showOnlyBookmarks && (
+        <CategoryShowcase items={items} onSelectCategory={onSelectCategory} />
+      )}
 
       {/* UNIFIED DUAL SEARCH RESULTS VIEW (Local News Content + Google Custom Search API) */}
       {searchQuery.trim() ? (
@@ -884,7 +897,8 @@ export const FeedView: React.FC<FeedViewProps> = ({
                     )}
                   </div>
                 ) : (
-                  <>
+                  <div className="layout-grid">
+                  <div className="posts-main">
                     {/* Featured Lead Story */}
                     <NewsCard
                       item={filteredItems[0]}
@@ -947,7 +961,15 @@ export const FeedView: React.FC<FeedViewProps> = ({
                         You're all caught up — {filteredItems.length} stories shown.
                       </div>
                     )}
-                  </>
+                  </div>
+
+                  <Sidebar
+                    items={items}
+                    onOpenStory={onOpenStory}
+                    onSelectCategory={onSelectCategory}
+                    onNavigateCommunity={onNavigateCommunity}
+                  />
+                  </div>
                 )}
               </>
             )}
