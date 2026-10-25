@@ -35,8 +35,54 @@ To enable seamless deployments on `https://elighty01.github.io/Viralhoods/`:
 ## Structure
 
 - `src/`
-  - `components/`: Header, Footer, NewsCard, FeedView, AboutView, AdminView
+  - `components/`: Header, Footer, NewsCard, FeedView, AboutView, AdminView, Sidebar, CategoryShowcase
   - `types.ts`: NewsItem and Category definitions
   - `App.tsx`: Main routing and application state
   - `index.css`: Design system and typography
 - `data/news.json` & `public/data/news.json`: Active news feed data
+- `data/ads.json` & `public/data/ads.json`: Sidebar advertisement slots
+
+## Homepage Layout: Sidebar & Ads
+
+The homepage (all-sectors and single-sector feed views) uses a two-column
+layout: the main story feed on the left, a sticky rail on the right
+(`src/components/Sidebar.tsx`). The rail has four widgets, in order:
+
+1. **Advertisement** — one card per entry in `data/ads.json`.
+2. **From the Community** — a live pull of the 4 most recent Community posts.
+3. **Trending Now** — the freshest stories across every sector.
+4. **Browse by Sector** — live per-category story counts.
+
+The all-sectors home view also shows a **"What We Cover"** sector grid
+(`src/components/CategoryShowcase.tsx`) above the feed, with a live story
+count per sector.
+
+### Posting / editing adverts
+
+Ad slots are **not** hardcoded in a component — they're read from
+`public/data/ads.json` at runtime (the same pattern `news.json` already
+uses), so you can add, edit, or remove an ad without touching any code:
+
+```json
+{
+  "updated": "2026-10-25T00:00:00.000Z",
+  "ads": [
+    {
+      "id": "unique-slug",
+      "sponsor": "Advertiser name (optional, shown as a small label)",
+      "title": "Headline shown in the card",
+      "description": "One or two sentences (optional)",
+      "imageUrl": "https://... (optional — leave \"\" to skip the image)",
+      "href": "https://... or mailto:...",
+      "cta": "Button text (optional, defaults to \"Learn more\")"
+    }
+  ]
+}
+```
+
+Keep `data/ads.json` and `public/data/ads.json` in sync (the `data/`
+copy is the source of truth; `public/data/` is what actually gets served
+and fetched by the browser). An empty `"ads": []` array hides the widget
+entirely. There's no admin-console UI for ads yet — adding a dedicated
+"Ads" tab next to Stories/Subscribers in the Editorial Console (so they
+can be managed without editing JSON by hand) is a natural next step.
