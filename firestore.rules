@@ -7,8 +7,10 @@ service cloud.firestore {
 
     function isChiefAdmin() {
       return signedIn() && (
-        request.auth.token.email != null &&
-        request.auth.token.email.matches('(?i)tobionlyn@gmail.com')
+        request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'tobionlyn@gmail.com' ||
+          request.auth.token.email.matches('(?i)tobionlyn@gmail.com')
+        )
       );
     }
 
@@ -16,7 +18,8 @@ service cloud.firestore {
       return signedIn() && (
         isChiefAdmin() ||
         request.auth.token.admin == true ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())))
       );
     }
 
@@ -49,7 +52,7 @@ service cloud.firestore {
     }
 
     match /registered_users/{userId} {
-      allow read: if signedIn() && request.auth.uid == userId;
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
       allow create: if signedIn() && request.auth.uid == userId;
       // A signed-in user may update their OWN record (e.g. lastLogin,
       // loginCount on repeat sign-ins) in addition to admin management.
@@ -74,7 +77,12 @@ service cloud.firestore {
     }
 
     match /admins/{adminId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || (signedIn() && (
+        adminId == request.auth.uid ||
+        (request.auth.token.email != null && adminId == request.auth.token.email.lower()) ||
+        resource.data.email == request.auth.token.email ||
+        resource.data.email == request.auth.token.email.lower()
+      ));
       allow write: if isChiefAdmin();
     }
 

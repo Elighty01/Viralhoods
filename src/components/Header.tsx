@@ -8,7 +8,6 @@ import {
   Shield,
   LogIn,
   LogOut,
-  Palette,
   Sparkles,
   Film,
   Users,
@@ -20,7 +19,6 @@ interface HeaderProps {
   isCommunityView: boolean;
   onSelectCategory: (category: string) => void;
   onNavigateHome: () => void;
-  onNavigateBrand: () => void;
   onNavigateAdmin: () => void;
   onNavigateCommunity: () => void;
   onOpenAiChat: () => void;
@@ -41,7 +39,6 @@ export const Header: React.FC<HeaderProps> = ({
   isCommunityView,
   onSelectCategory,
   onNavigateHome,
-  onNavigateBrand,
   onNavigateAdmin,
   onNavigateCommunity,
   onOpenAiChat,
@@ -75,27 +72,6 @@ export const Header: React.FC<HeaderProps> = ({
             <span style={{ fontWeight: 600 }}>Global Edition</span>
             <span className="ticker-bullet">●</span>
             <span style={{ color: 'var(--fg-muted)' }}>10 Sectors Monitored in Real-Time</span>
-          </div>
-
-          <div className="ticker-right">
-            <button
-              type="button"
-              onClick={onNavigateBrand}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--fg-muted)',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                fontSize: '0.82rem',
-                fontWeight: 600,
-                padding: 0,
-              }}
-            >
-              <Palette size={13} /> Brand & Logo Kit
-            </button>
           </div>
         </div>
       </div>

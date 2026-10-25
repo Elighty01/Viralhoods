@@ -130,8 +130,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // re-checked by every Firestore write via security rules. Any admin
   // (chief or appointed) can open the dashboard; only the chief admin can
   // appoint or remove other admins (see `isChiefAdmin` below).
-  const isAuthorized = Boolean(currentUser?.isAdmin);
-  const isChiefAdmin = Boolean(currentUser?.isAdmin && isChiefAdminEmail(currentUser.email));
+  const isChiefAdmin = Boolean(isChiefAdminEmail(currentUser?.email));
+  const isAuthorized = Boolean(currentUser?.isAdmin || isChiefAdmin);
 
   const [stealthMode, setStealthMode] = useState<'hidden' | 'masked'>(getChiefAdminStealthMode());
 
@@ -189,8 +189,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Google Drive CSV Export
+  // Google Drive CSV Export (Exclusive to Chief Admin)
   const handleExportDriveCsv = () => {
+    if (!isChiefAdmin) return;
     try {
       const header = 'Member_ID,Username_Or_Email,Email,Full_Name,Registered_At,Last_Login,Login_Count,Registration_Source,Is_Chief_Admin,Device,Browser,Location\n';
       const rows = registeredMembers.map((m) =>
@@ -212,8 +213,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Copy Tabular Data for direct pasting into Google Sheets (Drive)
+  // Copy Tabular Data for direct pasting into Google Sheets (Drive) (Exclusive to Chief Admin)
   const handleCopyForGoogleSheets = async () => {
+    if (!isChiefAdmin) return;
     try {
       const header = 'Member ID\tUsername / Email\tEmail\tFull Name\tRegistered At\tLast Login\tLogins\tSource\tChief Admin\tDevice\tBrowser\tLocation\n';
       const rows = registeredMembers.map((m) =>
@@ -231,8 +233,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Direct link to create Google Sheet in Chief Admin's Drive
+  // Direct link to create Google Sheet in Chief Admin's Drive (Exclusive to Chief Admin)
   const handleOpenDriveSheets = () => {
+    if (!isChiefAdmin) return;
     window.open('https://docs.google.com/spreadsheets/u/0/create', '_blank', 'noopener,noreferrer');
   };
 
@@ -416,17 +419,24 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const fetchAdminRoster = async () => {
     try {
       const snap = await getDocs(collection(db, 'admins'));
-      const roster: AdminMember[] = snap.docs.map((d) => {
+      const map = new Map<string, AdminMember>();
+      snap.docs.forEach((d) => {
         const data = d.data() as any;
-        return {
-          email: data.email || '',
-          name: data.name,
-          addedBy: data.addedBy || 'System',
-          addedAt: data.addedAt?.toDate ? data.addedAt.toDate().toISOString() : data.addedAt || new Date().toISOString(),
-          isChief: Boolean(data.isChief),
-        };
+        const email = (data.email || (d.id.includes('@') ? d.id : '')).trim().toLowerCase();
+        if (!email) return;
+        const existing = map.get(email);
+        const isChief = isChiefAdminEmail(email) || Boolean(data.isChief);
+        if (!existing || isChief) {
+          map.set(email, {
+            email,
+            name: data.name || email.split('@')[0],
+            addedBy: data.addedBy || 'System',
+            addedAt: data.addedAt?.toDate ? data.addedAt.toDate().toISOString() : data.addedAt || new Date().toISOString(),
+            isChief,
+          });
+        }
       });
-      setAdminMembers(roster);
+      setAdminMembers(Array.from(map.values()));
     } catch (err) {
       console.warn('Could not load admin roster:', err);
     }
@@ -489,6 +499,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (isAuthorized) {
       fetchSubscribers();
       fetchAdminRoster();
+      fetchRegisteredMembers();
       fetchCommunityReports();
       try {
         setRepoInput(localStorage.getItem('viralhoods_gh_repo') || 'Elighty01/Viralhoods');
@@ -586,53 +597,72 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
 
     try {
-      // 1. Look for matching registered member to get their UID and details
       let targetUid = '';
-      let targetEmail = cleanInput;
+      let targetEmail = cleanInput.includes('@') ? cleanInput : '';
       let targetName = cleanInput.split('@')[0];
 
+      // 1. If username was provided without '@', resolve UID from usernames collection
+      if (!cleanInput.includes('@')) {
+        try {
+          const userDoc = await getDoc(doc(db, 'usernames', cleanInput));
+          if (userDoc.exists()) {
+            targetUid = userDoc.data()?.uid || '';
+          }
+        } catch (uErr) {
+          console.warn('Could not query usernames:', uErr);
+        }
+      }
+
+      // 2. Query registered_users to resolve email and name if available
       try {
         const usersSnap = await getDocs(collection(db, 'registered_users'));
         const matched = usersSnap.docs.find((d) => {
           const data = d.data();
           const email = (data.email || data.usernameOrEmail || '').trim().toLowerCase();
-          return email === cleanInput || d.id === cleanInput;
+          const username = (data.name || '').trim().toLowerCase();
+          return email === cleanInput || d.id === cleanInput || username === cleanInput || (targetUid && d.id === targetUid);
         });
         if (matched) {
           targetUid = matched.id;
           const data = matched.data();
-          targetEmail = data.email || cleanInput;
+          if (data.email) targetEmail = data.email.trim().toLowerCase();
           targetName = data.name || targetEmail.split('@')[0];
         }
       } catch (findErr) {
         console.warn('Query registered_users notice:', findErr);
       }
 
-      if (!targetUid) {
-        const matchedSub = subscribers.find((s) => s.email.trim().toLowerCase() === cleanInput);
-        if (matchedSub?.uid) {
-          targetUid = matchedSub.uid;
+      // 3. Fallback to subscribers collection if email/uid still unknown
+      if (!targetEmail || !targetUid) {
+        const matchedSub = subscribers.find((s) => {
+          const sEmail = s.email.trim().toLowerCase();
+          return sEmail === cleanInput || (targetUid && s.uid === targetUid);
+        });
+        if (matchedSub) {
+          targetEmail = matchedSub.email.trim().toLowerCase();
+          if (matchedSub.uid) targetUid = matchedSub.uid;
         }
       }
 
-      const docId = targetUid || cleanInput.replace(/[^a-zA-Z0-9_-]/g, '_');
+      if (!targetEmail) {
+        targetEmail = cleanInput;
+      }
 
-      // 2. Direct write to Firestore /admins collection (authorized by firestore.rules for Chief Admin)
-      await setDoc(
-        doc(db, 'admins', docId),
-        {
-          email: targetEmail,
-          name: targetName,
-          uid: targetUid || docId,
-          isChief: false,
-          addedBy: currentUser?.email || 'tobionlyn@gmail.com',
-          addedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      const adminPayload = {
+        email: targetEmail,
+        name: targetName || targetEmail.split('@')[0],
+        uid: targetUid || '',
+        isChief: false,
+        addedBy: currentUser?.email || 'tobionlyn@gmail.com',
+        addedAt: new Date().toISOString(),
+      };
 
-      // If registered member doc exists, update isAdmin: true
+      // 4. Primary: Save document keyed by EMAIL (e.g. "editor@gmail.com")
+      await setDoc(doc(db, 'admins', targetEmail), adminPayload, { merge: true });
+
+      // 5. Secondary: If UID is known, also write under UID (e.g. "abc123xyz")
       if (targetUid) {
+        await setDoc(doc(db, 'admins', targetUid), adminPayload, { merge: true });
         try {
           await setDoc(doc(db, 'registered_users', targetUid), { isAdmin: true }, { merge: true });
         } catch {
@@ -640,7 +670,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         }
       }
 
-      // 3. Optional background call to grantAdminClaim Cloud Function (non-blocking)
+      // 6. Optional background call to grantAdminClaim Cloud Function (non-blocking)
       try {
         const grantAdminClaim = httpsCallable(functions, 'grantAdminClaim');
         await grantAdminClaim({ email: targetEmail });
@@ -671,10 +701,16 @@ export const AdminView: React.FC<AdminViewProps> = ({
       const snap = await getDocs(collection(db, 'admins'));
       const toDelete = snap.docs.filter((d) => {
         const data = d.data();
-        return (data.email || '').trim().toLowerCase() === cleanInput || d.id === cleanInput;
+        const docEmail = (data.email || '').trim().toLowerCase();
+        return docEmail === cleanInput || d.id === cleanInput || data.uid === cleanInput;
       });
       for (const d of toDelete) {
         await deleteDoc(d.ref);
+      }
+      try {
+        await deleteDoc(doc(db, 'admins', cleanInput));
+      } catch {
+        // ignore
       }
 
       // Also reset isAdmin in registered_users if matching
@@ -682,7 +718,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const usersSnap = await getDocs(collection(db, 'registered_users'));
         const matched = usersSnap.docs.find((d) => {
           const data = d.data();
-          return (data.email || data.usernameOrEmail || '').trim().toLowerCase() === cleanInput;
+          const email = (data.email || data.usernameOrEmail || '').trim().toLowerCase();
+          return email === cleanInput || d.id === cleanInput;
         });
         if (matched) {
           await setDoc(matched.ref, { isAdmin: false }, { merge: true });
@@ -955,8 +992,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTimeout(() => setBlogPublishSuccess(null), 5000);
   };
 
-  // Handle Export Subscribers to Google Drive CSV
+  // Handle Export Subscribers to Google Drive CSV (Exclusive to Chief Admin)
   const handleExportSubscribersDriveCsv = () => {
+    if (!isChiefAdmin) return;
     if (subscribers.length === 0) {
       setSubscriberActionMsg({ text: 'No subscribers to export yet.', isError: true });
       return;
@@ -982,8 +1020,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Copy Tabular Subscribers for Google Sheets
+  // Copy Tabular Subscribers for Google Sheets (Exclusive to Chief Admin)
   const handleCopySubscribersForSheets = async () => {
+    if (!isChiefAdmin) return;
     if (subscribers.length === 0) {
       setSubscriberActionMsg({ text: 'No subscribers to copy yet.', isError: true });
       return;
@@ -1526,7 +1565,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {isResettingBaseline ? 'Resetting...' : 'Reset Clean Baseline'}
               </button>
 
-              {analyticsData && (
+              {isChiefAdmin && analyticsData && (
                 <>
                   <button
                     type="button"
@@ -3304,48 +3343,54 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   marginBottom: '10px',
                 }}
               >
-                <HardDrive size={14} /> PERSISTENT SUBSCRIBERS DATABASE &amp; GOOGLE DRIVE
+                <HardDrive size={14} /> PERSISTENT SUBSCRIBERS DATABASE{isChiefAdmin ? ' & GOOGLE DRIVE' : ''}
               </div>
               <h2 style={{ fontSize: '1.7rem', fontWeight: 800, margin: '0 0 6px' }}>
                 Audience &amp; Daily Briefing Subscribers
               </h2>
               <p style={{ color: 'var(--fg-muted)', fontSize: '0.94rem', margin: 0, maxWidth: '680px', lineHeight: 1.5 }}>
-                Every visitor who enrolls in the Viralhoods Morning Dispatch, or creates an account, is stored in this live Firestore database. Full access to search, manage, and export directly into your Google Drive &amp; Sheets.
+                {isChiefAdmin
+                  ? 'Every visitor who enrolls in the Viralhoods Morning Dispatch, or creates an account, is stored in this live Firestore database. Full access to search, manage, and export directly into your Google Drive & Sheets.'
+                  : 'Every visitor who enrolls in the Viralhoods Morning Dispatch, or creates an account, is stored in this live Firestore database. Full directory of enrolled readers with channel origin and enrollment timestamps.'}
               </p>
             </div>
 
             {/* Quick Actions for Google Drive & Sync */}
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={handleExportSubscribersDriveCsv}
-                className="btn-primary"
-                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title="Download CSV formatted for Google Drive / Google Sheets"
-              >
-                <Download size={15} /> Export for Google Drive (CSV)
-              </button>
+              {isChiefAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleExportSubscribersDriveCsv}
+                    className="btn-primary"
+                    style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Download CSV formatted for Google Drive / Google Sheets"
+                  >
+                    <Download size={15} /> Export for Google Drive (CSV)
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleCopySubscribersForSheets}
-                className="btn-secondary"
-                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title="Copy entire subscribers database to clipboard to paste directly into Google Sheets"
-              >
-                {hasCopiedSubscribers ? <Check size={15} style={{ color: '#16a34a' }} /> : <Copy size={15} />}
-                {hasCopiedSubscribers ? 'Copied for Drive Sheets!' : 'Copy for Google Sheets'}
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleCopySubscribersForSheets}
+                    className="btn-secondary"
+                    style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Copy entire subscribers database to clipboard to paste directly into Google Sheets"
+                  >
+                    {hasCopiedSubscribers ? <Check size={15} style={{ color: '#16a34a' }} /> : <Copy size={15} />}
+                    {hasCopiedSubscribers ? 'Copied for Drive Sheets!' : 'Copy for Google Sheets'}
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleOpenDriveSheets}
-                className="btn-secondary"
-                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title="Open a new Google Sheet in your Google Drive"
-              >
-                <ExternalLink size={15} style={{ color: 'var(--blue)' }} /> Open Google Sheets
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenDriveSheets}
+                    className="btn-secondary"
+                    style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Open a new Google Sheet in your Google Drive"
+                  >
+                    <ExternalLink size={15} style={{ color: 'var(--blue)' }} /> Open Google Sheets
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
@@ -3422,13 +3467,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
             <div style={{ padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
               <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
-                Chief Administrator
+                {isChiefAdmin ? 'Chief Administrator' : 'Dispatch Frequency'}
               </div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
-                tobionlyn@gmail.com
+              <div style={{ fontSize: isChiefAdmin ? '1.2rem' : '1.35rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
+                {isChiefAdmin ? 'tobionlyn@gmail.com' : 'Daily 12:00 AM UTC'}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, marginTop: '2px' }}>
-                👑 Full Subscriber Authority
+                {isChiefAdmin ? '👑 Full Subscriber Authority' : '✓ Automated Newsletter Delivery'}
               </div>
             </div>
           </div>
@@ -3643,48 +3688,54 @@ export const AdminView: React.FC<AdminViewProps> = ({
           >
             <div>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 10px', background: 'rgba(16, 185, 129, 0.12)', color: '#10b981', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 800, marginBottom: '10px' }}>
-                <HardDrive size={14} /> PERSISTENT USER DATABASE & GOOGLE DRIVE INTEGRATION
+                <HardDrive size={14} /> PERSISTENT USER DATABASE{isChiefAdmin ? ' & GOOGLE DRIVE INTEGRATION' : ''}
               </div>
               <h2 style={{ fontSize: '1.7rem', fontWeight: 800, margin: '0 0 6px' }}>
-                Registered Users & Login Database
+                Registered Users &amp; Login Database
               </h2>
               <p style={{ color: 'var(--fg-muted)', fontSize: '0.94rem', margin: 0, maxWidth: '680px', lineHeight: 1.5 }}>
-                Every user who registers or logs into Viralhoods is automatically deposited into this secure database. You have 100% full access to export, copy, or link directly into your Google Drive & Sheets.
+                {isChiefAdmin
+                  ? 'Every user who registers or logs into Viralhoods is automatically deposited into this secure database. You have 100% full access to export, copy, or link directly into your Google Drive & Sheets.'
+                  : 'Every user who registers or logs into Viralhoods is securely recorded in this member directory. Review account profiles, login methods, and device activity in real-time.'}
               </p>
             </div>
 
             {/* Quick Actions for Google Drive */}
             <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={handleExportDriveCsv}
-                className="btn-primary"
-                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title="Download CSV formatted for Google Drive / Google Sheets"
-              >
-                <Download size={15} /> Export for Google Drive (CSV)
-              </button>
+              {isChiefAdmin && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleExportDriveCsv}
+                    className="btn-primary"
+                    style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Download CSV formatted for Google Drive / Google Sheets"
+                  >
+                    <Download size={15} /> Export for Google Drive (CSV)
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleCopyForGoogleSheets}
-                className="btn-secondary"
-                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title="Copy entire database to clipboard to paste directly into Google Sheets"
-              >
-                {hasCopiedMembers ? <Check size={15} style={{ color: '#16a34a' }} /> : <Copy size={15} />}
-                {hasCopiedMembers ? 'Copied for Drive Sheets!' : 'Copy for Google Sheets'}
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyForGoogleSheets}
+                    className="btn-secondary"
+                    style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Copy entire database to clipboard to paste directly into Google Sheets"
+                  >
+                    {hasCopiedMembers ? <Check size={15} style={{ color: '#16a34a' }} /> : <Copy size={15} />}
+                    {hasCopiedMembers ? 'Copied for Drive Sheets!' : 'Copy for Google Sheets'}
+                  </button>
 
-              <button
-                type="button"
-                onClick={handleOpenDriveSheets}
-                className="btn-secondary"
-                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                title="Open a new Google Sheet in your Google Drive"
-              >
-                <ExternalLink size={15} style={{ color: 'var(--blue)' }} /> Open Google Sheets
-              </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenDriveSheets}
+                    className="btn-secondary"
+                    style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                    title="Open a new Google Sheet in your Google Drive"
+                  >
+                    <ExternalLink size={15} style={{ color: 'var(--blue)' }} /> Open Google Sheets
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
@@ -3731,7 +3782,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {registeredMembers.length}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600, marginTop: '2px' }}>
-                ✓ Synced to Firestore & Drive
+                {isChiefAdmin ? '✓ Synced to Firestore & Drive' : '✓ Synced to Firestore Database'}
               </div>
             </div>
 
@@ -3761,13 +3812,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
             <div style={{ padding: '16px 20px', background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
               <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>
-                Chief Administrator
+                {isChiefAdmin ? 'Chief Administrator' : 'Authentication Realm'}
               </div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
-                tobionlyn@gmail.com
+              <div style={{ fontSize: isChiefAdmin ? '1.2rem' : '1.35rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
+                {isChiefAdmin ? 'tobionlyn@gmail.com' : 'Google Identity & MFA'}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, marginTop: '2px' }}>
-                👑 Full Authority
+                {isChiefAdmin ? '👑 Full Authority' : '✓ End-to-End Encrypted'}
               </div>
             </div>
           </div>
@@ -3937,7 +3988,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                                 gap: '4px',
                               }}
                             >
-                              👑 Chief Admin
+                              {isChiefAdmin ? '👑 Chief Admin' : 'Admin'}
                             </span>
                           ) : (
                             <span
@@ -4311,32 +4362,42 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </button>
                 </form>
 
-                {subscribers.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '0.82rem', color: 'var(--fg-muted)' }}>
-                    <span style={{ fontWeight: 600 }}>Quick select member:</span>
-                    {subscribers.slice(0, 6).map((sub) => (
-                      <button
-                        key={sub.email}
-                        type="button"
-                        onClick={() => setNewAdminEmail(sub.email)}
-                        style={{
-                          background: 'var(--bg-subtle)',
-                          border: '1px solid var(--line)',
-                          borderRadius: '999px',
-                          padding: '3px 10px',
-                          fontSize: '0.78rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          color: 'var(--fg)',
-                          transition: 'all 0.15s ease',
-                        }}
-                        title={`Click to select ${sub.email}`}
-                      >
-                        + {sub.email}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  const candidateEmails = Array.from(
+                    new Set([
+                      ...registeredMembers.filter((m) => !m.isAdmin && !isChiefAdminEmail(m.email)).map((m) => m.email || m.usernameOrEmail),
+                      ...subscribers.filter((s) => !isChiefAdminEmail(s.email)).map((s) => s.email),
+                    ])
+                  ).filter((e) => e && e.includes('@')).slice(0, 8);
+
+                  if (candidateEmails.length === 0) return null;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '0.82rem', color: 'var(--fg-muted)' }}>
+                      <span style={{ fontWeight: 600 }}>Quick select member:</span>
+                      {candidateEmails.map((email) => (
+                        <button
+                          key={email}
+                          type="button"
+                          onClick={() => setNewAdminEmail(email)}
+                          style={{
+                            background: 'var(--bg-subtle)',
+                            border: '1px solid var(--line)',
+                            borderRadius: '999px',
+                            padding: '3px 10px',
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            color: 'var(--fg)',
+                            transition: 'all 0.15s ease',
+                          }}
+                          title={`Click to select ${email}`}
+                        >
+                          + {email}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             ) : (
               <div

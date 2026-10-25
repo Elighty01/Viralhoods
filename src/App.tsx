@@ -4,7 +4,6 @@ import { Footer } from './components/Footer';
 import { FeedView } from './components/FeedView';
 import { ArticleView } from './components/ArticleView';
 import { AboutView } from './components/AboutView';
-import { BrandPage } from './components/BrandPage';
 
 // Lazily loaded: each of these is a large, feature-specific surface (the
 // 3,000+ line admin console; the AI chat/image tools) that most page views
@@ -45,7 +44,7 @@ import { trackPageVisit } from './utils/analytics';
 import { sanitizeNewsItem } from './utils/sanitize';
 import initialNewsData from '../data/news.json';
 
-type ActiveView = 'feed' | 'story' | 'about' | 'admin' | 'brand' | 'community' | 'profile';
+type ActiveView = 'feed' | 'story' | 'about' | 'admin' | 'community' | 'profile';
 
 export const App: React.FC = () => {
   const [view, setView] = useState<ActiveView>('feed');
@@ -94,11 +93,23 @@ export const App: React.FC = () => {
     // (see firebase.ts `refreshAdminStatus`), not a locally-stored flag.
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        const [isAdmin, profile] = await Promise.all([refreshAdminStatus(fbUser), fetchProfileByUid(fbUser.uid)]);
+        const isChief = fbUser.email?.trim().toLowerCase() === 'tobionlyn@gmail.com';
+        let isAdmin = isChief;
+        let profile = null;
+        try {
+          const res = await Promise.all([
+            refreshAdminStatus(fbUser).catch(() => isChief),
+            fetchProfileByUid(fbUser.uid).catch(() => null),
+          ]);
+          isAdmin = res[0];
+          profile = res[1];
+        } catch {
+          isAdmin = isChief;
+        }
         setCurrentUser({
           email: fbUser.email || '',
           name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',
-          isAdmin,
+          isAdmin: Boolean(isAdmin || isChief),
           uid: fbUser.uid,
           username: profile?.username || null,
         });
@@ -197,11 +208,6 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (rawHash.toLowerCase() === 'brand') {
-      setView('brand');
-      return;
-    }
-
     if (rawHash.toLowerCase() === 'admin') {
       setView('admin');
       return;
@@ -276,9 +282,6 @@ export const App: React.FC = () => {
     } else if (view === 'about') {
       pageName = 'About Viralhoods';
       path = '#about';
-    } else if (view === 'brand') {
-      pageName = 'Brand & Logo Kit';
-      path = '#brand';
     } else if (view === 'admin') {
       pageName = 'Admin Editorial Console';
       path = '#admin';
@@ -514,7 +517,6 @@ export const App: React.FC = () => {
         isCommunityView={view === 'community' || view === 'profile'}
         onSelectCategory={handleSelectCategory}
         onNavigateHome={handleNavigateHome}
-        onNavigateBrand={() => handleNavigateView('brand')}
         onNavigateAdmin={() => handleNavigateView('admin')}
         onNavigateCommunity={() => handleNavigateView('community')}
         onOpenAiChat={handleOpenAiAssistant}
@@ -571,8 +573,6 @@ export const App: React.FC = () => {
       )}
 
       {view === 'about' && <AboutView />}
-
-      {view === 'brand' && <BrandPage />}
 
       {view === 'community' && (
         <Suspense fallback={<div style={{ padding: '80px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading Community...</div>}>

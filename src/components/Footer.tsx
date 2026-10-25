@@ -5,7 +5,7 @@ import { Shield } from 'lucide-react';
 
 interface FooterProps {
   currentUser: User | null;
-  onNavigate: (view: 'about' | 'admin' | 'brand' | 'community') => void;
+  onNavigate: (view: 'about' | 'admin' | 'community') => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate }) => {
@@ -21,9 +21,6 @@ export const Footer: React.FC<FooterProps> = ({ currentUser, onNavigate }) => {
             </button>
             <button type="button" onClick={() => onNavigate('community')}>
               Community
-            </button>
-            <button type="button" onClick={() => onNavigate('brand')}>
-              Brand Kit & Logo
             </button>
 
             {/* Discreet Console link only rendered for active admin session */}

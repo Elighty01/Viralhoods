@@ -166,15 +166,22 @@ export async function refreshAdminStatus(fbUser: FirebaseUser): Promise<boolean>
     console.warn('Could not check admins doc by uid:', err);
   }
 
-  // 3. Check Firestore /admins collection by email
+  // 3. Check Firestore /admins/{email} doc directly (instant, index-free)
   if (fbUser.email) {
+    const cleanEmail = fbUser.email.trim().toLowerCase();
     try {
-      const cleanEmail = fbUser.email.trim().toLowerCase();
+      const adminDocByEmail = await getDoc(doc(db, 'admins', cleanEmail));
+      if (adminDocByEmail.exists()) return true;
+    } catch (err) {
+      console.warn('Could not check admins doc by email ID:', err);
+    }
+
+    try {
       const q = query(collection(db, 'admins'), where('email', '==', cleanEmail), limit(1));
       const snap = await getDocs(q);
       if (!snap.empty) return true;
     } catch (err) {
-      console.warn('Could not check admins collection by email:', err);
+      console.warn('Could not check admins collection by email query:', err);
     }
   }
 
