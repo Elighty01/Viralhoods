@@ -1,5 +1,5 @@
 import{c as a}from"./index.js";/**
- * @license lucide-react v1.59.0 - ISC
+ * @license lucide-react v1.61.0 - ISC
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.

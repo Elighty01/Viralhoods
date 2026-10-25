@@ -145,9 +145,38 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/scraper/trigger', async (_req, res) => {
+app.get('/api/scraper/proxy', async (req, res) => {
   try {
-    const result = await runScraper();
+    const targetUrl = String(req.query.url || '');
+    if (!targetUrl || !targetUrl.startsWith('http')) {
+      return res.status(400).send('Invalid url parameter');
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(targetUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 ViralhoodsBot/2.4',
+        Accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) {
+      return res.status(resp.status).send(`Upstream feed returned status ${resp.status}`);
+    }
+    const text = await resp.text();
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    return res.send(text);
+  } catch (err: any) {
+    return res.status(500).send(err?.message || 'Proxy error');
+  }
+});
+
+app.post('/api/scraper/trigger', async (req, res) => {
+  try {
+    const category = req.body?.category;
+    const result = await runScraper(category);
     return res.json({
       ok: true,
       count: result.count,

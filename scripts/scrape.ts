@@ -476,8 +476,9 @@ function dedupeAndPrune(items: any[]): any[] {
   return kept;
 }
 
-export async function runScraper() {
-  console.log('Running automated news scrape across all 10 sectors + 4 Entertainment sub-pages...');
+export async function runScraper(targetCategory?: string) {
+  const isAll = !targetCategory || targetCategory.toUpperCase() === 'ALL';
+  console.log(`Running automated news scrape for ${isAll ? 'all 10 sectors + 4 Entertainment sub-pages' : targetCategory}...`);
 
   geminiAvailable = true;
   geminiWarningLogged = false;
@@ -516,23 +517,29 @@ export async function runScraper() {
 
   const scrapedNewItems: any[] = [];
 
-  for (const cat of BOT_CATEGORIES) {
+  const categoriesToRun = isAll
+    ? [...BOT_CATEGORIES]
+    : BOT_CATEGORIES.filter((c) => c.toLowerCase() === targetCategory.toLowerCase());
+
+  for (const cat of categoriesToRun) {
     const feeds = RSS_FEEDS[cat] || RSS_FEEDS.World;
-    const items = await scrapeOneFeedSet(cat, feeds, aiClient, model, existingTitlesByKey.get(cat) || [], undefined, 3);
+    const items = await scrapeOneFeedSet(cat, feeds, aiClient, model, existingTitlesByKey.get(cat) || [], undefined, isAll ? 3 : 5);
     scrapedNewItems.push(...items);
   }
 
-  for (const sub of ENTERTAINMENT_SUBSECTORS) {
-    const items = await scrapeOneFeedSet(
-      'Entertainment',
-      ENTERTAINMENT_FEEDS[sub],
-      aiClient,
-      model,
-      existingTitlesByKey.get(`Entertainment::${sub}`) || [],
-      sub,
-      4
-    );
-    scrapedNewItems.push(...items);
+  if (isAll || targetCategory.toLowerCase() === 'entertainment') {
+    for (const sub of ENTERTAINMENT_SUBSECTORS) {
+      const items = await scrapeOneFeedSet(
+        'Entertainment',
+        ENTERTAINMENT_FEEDS[sub],
+        aiClient,
+        model,
+        existingTitlesByKey.get(`Entertainment::${sub}`) || [],
+        sub,
+        isAll ? 4 : 5
+      );
+      scrapedNewItems.push(...items);
+    }
   }
 
   // Merge: new items win on id collision (fresher paraphrase), then

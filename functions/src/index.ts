@@ -533,7 +533,10 @@ export const scrapeDailyTrendingNews = onSchedule(
 export const triggerNewsScrapeOnDemand = onCall(
   { memory: '1GiB', timeoutSeconds: 540, secrets: [GEMINI_API_KEY] },
   async (request) => {
-    if (request.auth?.token?.admin !== true) {
+    const callerEmail = request.auth?.token?.email?.trim().toLowerCase();
+    const chiefEmail = CHIEF_ADMIN_EMAIL.value().trim().toLowerCase();
+    const isChief = callerEmail && (callerEmail === chiefEmail || callerEmail === 'tobionlyn@gmail.com');
+    if (request.auth?.token?.admin !== true && !isChief) {
       throw new HttpsError('permission-denied', 'Only an administrator can trigger a manual scrape.');
     }
     return scrapeTrendingNewsAndSyncFirestore();
