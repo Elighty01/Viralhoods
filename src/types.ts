@@ -87,19 +87,52 @@ export interface AdminMember {
 }
 
 export const CATEGORIES = [
-  "World",
-  "Politics",
-  "Finance",
-  "Health",
-  "Entertainment",
-  "Research",
-  "Science",
-  "AI",
-  "Tech",
-  "Sports",
+  'World',
+  'Politics',
+  'Finance',
+  'Health',
+  'Entertainment',
+  'Research',
+  'Science',
+  'AI & Tech',
+  'Sports',
 ] as const;
 
 export type Category = (typeof CATEGORIES)[number];
+
+export const HOME_CATEGORY = 'Home';
+
+export const CATEGORY_ALIASES: Record<string, string> = {
+  ai: 'AI & Tech',
+  tech: 'AI & Tech',
+  'ai & tech': 'AI & Tech',
+  'ai-tech': 'AI & Tech',
+  'ai-tech-news': 'AI & Tech',
+};
+
+export const normalizeCategoryName = (value?: string | null): string => {
+  if (!value) return HOME_CATEGORY;
+  const cleaned = value.trim();
+  const exact = CATEGORIES.find((cat) => cat.toLowerCase() === cleaned.toLowerCase());
+  if (exact) return exact;
+  const alias = CATEGORY_ALIASES[cleaned.toLowerCase()];
+  if (alias) return alias;
+  const normalized = cleaned.toLowerCase().replace(/[^a-z0-9&\s-]/g, '').replace(/\s+/g, ' ');
+  if (normalized === 'ai' || normalized === 'tech' || normalized === 'ai tech' || normalized === 'ai-tech') {
+    return 'AI & Tech';
+  }
+  return cleaned;
+};
+
+export const categoryMatches = (value: string | null | undefined, target: string): boolean => {
+  const normalizedValue = normalizeCategoryName(value);
+  const normalizedTarget = normalizeCategoryName(target);
+  if (normalizedValue === normalizedTarget) return true;
+  if (normalizedTarget === 'AI & Tech') {
+    return ['AI & Tech', 'AI', 'Tech'].includes(normalizedValue);
+  }
+  return false;
+};
 
 // Entertainment Hub sub-pages. Stories tagged with one of these in
 // `subSector` (category === 'Entertainment') populate that sub-page's bot
@@ -147,6 +180,16 @@ export interface LinkPreview {
   domain?: string;
 }
 
+export interface CommunityComment {
+  id: string;
+  postId: string;
+  authorUid: string;
+  authorUsername: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface CommunityPost {
   id: string;
   authorUid: string;
@@ -165,6 +208,7 @@ export interface CommunityPost {
   updatedAt?: string;
   likeCount: number;
   likedBy?: string[];
+  commentCount?: number;
 }
 
 export interface UserProfile {
