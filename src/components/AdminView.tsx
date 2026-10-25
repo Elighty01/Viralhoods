@@ -572,21 +572,88 @@ export const AdminView: React.FC<AdminViewProps> = ({
     };
   }, [allStories, subscribers, analyticsData]);
 
-  // Only Chief Admin can add a member as admin. This calls a Cloud Function
-  // that sets a real Firebase custom claim — the appointee must have signed
-  // in to Viralhoods at least once already so their account exists.
+  // Only Chief Admin can add a member as admin. Directly persists to Firestore's
+  // `admins` collection and synchronizes with Firebase Auth claims in the background.
   const handleAddAdmin = async (emailOrUsername: string) => {
     if (!isChiefAdmin) {
       setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has exclusive authority to appoint administrators.', isError: true });
       return;
     }
+    const cleanInput = emailOrUsername.trim().toLowerCase();
+    if (!cleanInput) {
+      setAdminActionMsg({ text: 'Please enter a valid member email or username.', isError: true });
+      return;
+    }
+
     try {
-      const grantAdminClaim = httpsCallable(functions, 'grantAdminClaim');
-      const res: any = await grantAdminClaim({ email: emailOrUsername.trim().toLowerCase() });
-      setAdminActionMsg({ text: res.data?.message || `${emailOrUsername} is now an administrator.`, isError: false });
+      // 1. Look for matching registered member to get their UID and details
+      let targetUid = '';
+      let targetEmail = cleanInput;
+      let targetName = cleanInput.split('@')[0];
+
+      try {
+        const usersSnap = await getDocs(collection(db, 'registered_users'));
+        const matched = usersSnap.docs.find((d) => {
+          const data = d.data();
+          const email = (data.email || data.usernameOrEmail || '').trim().toLowerCase();
+          return email === cleanInput || d.id === cleanInput;
+        });
+        if (matched) {
+          targetUid = matched.id;
+          const data = matched.data();
+          targetEmail = data.email || cleanInput;
+          targetName = data.name || targetEmail.split('@')[0];
+        }
+      } catch (findErr) {
+        console.warn('Query registered_users notice:', findErr);
+      }
+
+      if (!targetUid) {
+        const matchedSub = subscribers.find((s) => s.email.trim().toLowerCase() === cleanInput);
+        if (matchedSub?.uid) {
+          targetUid = matchedSub.uid;
+        }
+      }
+
+      const docId = targetUid || cleanInput.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      // 2. Direct write to Firestore /admins collection (authorized by firestore.rules for Chief Admin)
+      await setDoc(
+        doc(db, 'admins', docId),
+        {
+          email: targetEmail,
+          name: targetName,
+          uid: targetUid || docId,
+          isChief: false,
+          addedBy: currentUser?.email || 'tobionlyn@gmail.com',
+          addedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      // If registered member doc exists, update isAdmin: true
+      if (targetUid) {
+        try {
+          await setDoc(doc(db, 'registered_users', targetUid), { isAdmin: true }, { merge: true });
+        } catch {
+          // non-fatal
+        }
+      }
+
+      // 3. Optional background call to grantAdminClaim Cloud Function (non-blocking)
+      try {
+        const grantAdminClaim = httpsCallable(functions, 'grantAdminClaim');
+        await grantAdminClaim({ email: targetEmail });
+      } catch (fnErr: any) {
+        console.warn('Cloud Function claim notice (Firestore record already active):', fnErr?.message || fnErr);
+      }
+
+      setAdminActionMsg({ text: `✓ Successfully appointed ${targetEmail} as Administrator.`, isError: false });
       setNewAdminEmail('');
       await fetchAdminRoster();
+      await fetchRegisteredMembers();
     } catch (err: any) {
+      console.error('Error appointing administrator:', err);
       setAdminActionMsg({ text: err?.message || 'Could not appoint this administrator.', isError: true });
     }
     setTimeout(() => setAdminActionMsg(null), 5000);
@@ -598,11 +665,43 @@ export const AdminView: React.FC<AdminViewProps> = ({
       setAdminActionMsg({ text: 'Access denied: Only the Chief Administrator has authority to remove administrators.', isError: true });
       return;
     }
+    const cleanInput = emailOrUsername.trim().toLowerCase();
     try {
-      const revokeAdminClaim = httpsCallable(functions, 'revokeAdminClaim');
-      const res: any = await revokeAdminClaim({ email: emailOrUsername.trim().toLowerCase() });
-      setAdminActionMsg({ text: res.data?.message || `${emailOrUsername} is no longer an administrator.`, isError: false });
+      // 1. Direct deletion from Firestore /admins collection
+      const snap = await getDocs(collection(db, 'admins'));
+      const toDelete = snap.docs.filter((d) => {
+        const data = d.data();
+        return (data.email || '').trim().toLowerCase() === cleanInput || d.id === cleanInput;
+      });
+      for (const d of toDelete) {
+        await deleteDoc(d.ref);
+      }
+
+      // Also reset isAdmin in registered_users if matching
+      try {
+        const usersSnap = await getDocs(collection(db, 'registered_users'));
+        const matched = usersSnap.docs.find((d) => {
+          const data = d.data();
+          return (data.email || data.usernameOrEmail || '').trim().toLowerCase() === cleanInput;
+        });
+        if (matched) {
+          await setDoc(matched.ref, { isAdmin: false }, { merge: true });
+        }
+      } catch {
+        // non-fatal
+      }
+
+      // 2. Best-effort Cloud Function revoke claim
+      try {
+        const revokeAdminClaim = httpsCallable(functions, 'revokeAdminClaim');
+        await revokeAdminClaim({ email: cleanInput });
+      } catch (fnErr) {
+        console.warn('Revoke admin claim note:', fnErr);
+      }
+
+      setAdminActionMsg({ text: `✓ ${cleanInput} is no longer an administrator.`, isError: false });
       await fetchAdminRoster();
+      await fetchRegisteredMembers();
     } catch (err: any) {
       setAdminActionMsg({ text: err?.message || 'Could not revoke this administrator.', isError: true });
     }
@@ -612,18 +711,39 @@ export const AdminView: React.FC<AdminViewProps> = ({
   // One-click: revoke every appointed (non-chief) administrator.
   const handlePurgeAllNonChiefAdmins = async () => {
     if (!isChiefAdmin) return;
-    const revokeAdminClaim = httpsCallable(functions, 'revokeAdminClaim');
-    const nonChief = adminMembers.filter((m) => !m.isChief);
     try {
-      await Promise.all(nonChief.map((m) => revokeAdminClaim({ email: m.email })));
-    } catch (err) {
-      console.warn('Note while revoking some admins:', err);
+      const snap = await getDocs(collection(db, 'admins'));
+      const nonChiefDocs = snap.docs.filter((d) => {
+        const data = d.data();
+        return !isChiefAdminEmail(data.email) && !data.isChief;
+      });
+      for (const d of nonChiefDocs) {
+        await deleteDoc(d.ref);
+      }
+
+      // Also reset in registered_users
+      try {
+        const usersSnap = await getDocs(collection(db, 'registered_users'));
+        for (const u of usersSnap.docs) {
+          const udata = u.data();
+          if (!isChiefAdminEmail(udata.email) && udata.isAdmin) {
+            await setDoc(u.ref, { isAdmin: false }, { merge: true });
+          }
+        }
+      } catch {
+        // non-fatal
+      }
+
+      setAdminActionMsg({
+        text: 'All appointed administrators removed. The Chief Administrator is now the sole administrator.',
+        isError: false,
+      });
+      await fetchAdminRoster();
+      await fetchRegisteredMembers();
+    } catch (err: any) {
+      console.warn('Purge error:', err);
+      setAdminActionMsg({ text: err?.message || 'Error purging non-chief administrators.', isError: true });
     }
-    await fetchAdminRoster();
-    setAdminActionMsg({
-      text: 'All appointed administrators removed. The Chief Administrator is now the sole administrator.',
-      isError: false,
-    });
     setTimeout(() => setAdminActionMsg(null), 5000);
   };
 

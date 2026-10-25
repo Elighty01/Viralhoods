@@ -80,58 +80,103 @@ export const DEFAULT_CATEGORY_IMAGES: Record<Category, string> = {
  * falling back to resilient public CORS proxies.
  */
 export async function fetchRssText(feedUrl: string): Promise<string> {
+  const isXml = (text: string) =>
+    text && (text.includes('<rss') || text.includes('<xml') || text.includes('<feed') || text.includes('<channel'));
+
   // 1. Try local Express proxy if running
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), 3500);
     const resp = await fetch(`/api/scraper/proxy?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
     if (resp.ok) {
       const text = await resp.text();
-      if (text && text.includes('<rss') || text.includes('<xml') || text.includes('<feed')) {
-        return text;
-      }
+      if (isXml(text)) return text;
     }
   } catch {
-    // Local proxy not available or timed out (e.g. on GitHub Pages)
+    // Local proxy not available or timed out (e.g. on live link / GitHub Pages)
   }
 
-  // 2. Try AllOrigins raw endpoint
+  // 2. Try corsproxy.io (fast and high reliability)
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const resp = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const text = await resp.text();
+      if (isXml(text)) return text;
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 3. Try CodeTabs public CORS proxy
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const text = await resp.text();
+      if (isXml(text)) return text;
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 4. Try AllOrigins raw endpoint
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 7000);
     const resp = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
     if (resp.ok) {
       const text = await resp.text();
-      if (text && (text.includes('<rss') || text.includes('<xml') || text.includes('<feed'))) {
-        return text;
-      }
+      if (isXml(text)) return text;
     }
   } catch {
-    // Fall through to JSON wrapper
+    // Fall through
   }
 
-  // 3. Try AllOrigins JSON get endpoint
+  // 5. Try AllOrigins JSON get endpoint
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 7000);
     const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
     if (resp.ok) {
       const json = await resp.json();
-      if (json?.contents && (json.contents.includes('<rss') || json.contents.includes('<xml') || json.contents.includes('<feed'))) {
+      if (json?.contents && isXml(json.contents)) {
         return json.contents;
       }
     }
   } catch {
-    // Pass
+    // Fall through
+  }
+
+  // 6. Direct fetch (works for CORS-friendly feeds)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(feedUrl, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const text = await resp.text();
+      if (isXml(text)) return text;
+    }
+  } catch {
+    // Fall through
   }
 
   throw new Error(`Unable to fetch RSS feed from ${feedUrl}`);
@@ -260,6 +305,7 @@ export function parseRssXmlToStories(
 export interface ClientScrapeOptions {
   targetCategory?: Category | 'ALL';
   existingTitles?: string[];
+  forceRefresh?: boolean;
   onProgress?: (message: string, count: number, total: number) => void;
 }
 
@@ -279,12 +325,13 @@ export interface ClientScrapeResult {
  * - Updates local storage cache for immediate live rendering
  */
 export async function runClientSideScraper(options: ClientScrapeOptions = {}): Promise<ClientScrapeResult> {
-  const { targetCategory = 'ALL', existingTitles = [], onProgress } = options;
+  const { targetCategory = 'ALL', existingTitles = [], forceRefresh = true, onProgress } = options;
   const categoriesToScrape: Category[] =
     targetCategory === 'ALL' ? [...CATEGORIES] : [targetCategory];
 
   const scrapedStories: NewsItem[] = [];
   const seenTitles = new Set(existingTitles.map((t) => t.toLowerCase().trim()));
+  const seenThisRun = new Set<string>();
   let progressStep = 0;
   const totalSteps =
     targetCategory === 'ALL'
@@ -299,20 +346,30 @@ export async function runClientSideScraper(options: ClientScrapeOptions = {}): P
     onProgress?.(`Scraping ${cat} wire feeds & extracting multimedia...`, progressStep, totalSteps);
 
     const feeds = RSS_FEEDS[cat] || RSS_FEEDS.World;
+    let addedForCategory = 0;
+
     for (const feedUrl of feeds) {
       try {
         const xml = await fetchRssText(feedUrl);
-        const parsed = parseRssXmlToStories(xml, cat, undefined, targetCategory === 'ALL' ? 3 : 5);
+        const parsed = parseRssXmlToStories(xml, cat, undefined, targetCategory === 'ALL' ? 6 : 8);
 
         for (const item of parsed) {
           if (!item.title) continue;
           const cleanTitle = item.title.toLowerCase().trim();
-          if (seenTitles.has(cleanTitle)) continue;
+          if (seenThisRun.has(cleanTitle)) continue;
+
+          // If already existing and not forceRefresh, only skip if we already added enough fresh ones
+          if (seenTitles.has(cleanTitle) && !forceRefresh && addedForCategory >= 2) {
+            continue;
+          }
+
+          seenThisRun.add(cleanTitle);
           seenTitles.add(cleanTitle);
 
           // Enrich with comprehensive 5-paragraph paraphrasing and video link retention
           const fullStory = enrichStoryWithFullContent(item as NewsItem);
           scrapedStories.push(fullStory);
+          addedForCategory++;
 
           // Save to Firestore
           try {
@@ -323,9 +380,11 @@ export async function runClientSideScraper(options: ClientScrapeOptions = {}): P
 
           // Save to local cache
           saveCustomStory(fullStory);
+
+          if (addedForCategory >= (targetCategory === 'ALL' ? 3 : 5)) break;
         }
-        // If we got items from the first feed, no need to hammer the mirror
-        if (parsed.length > 0) break;
+
+        if (addedForCategory > 0) break;
       } catch (err) {
         console.warn(`[ClientScraper] Feed notice for ${cat} (${feedUrl}):`, err);
       }
@@ -347,7 +406,8 @@ export async function runClientSideScraper(options: ClientScrapeOptions = {}): P
           for (const item of parsed) {
             if (!item.title) continue;
             const cleanTitle = item.title.toLowerCase().trim();
-            if (seenTitles.has(cleanTitle)) continue;
+            if (seenThisRun.has(cleanTitle)) continue;
+            seenThisRun.add(cleanTitle);
             seenTitles.add(cleanTitle);
 
             const fullStory = enrichStoryWithFullContent(item as NewsItem);

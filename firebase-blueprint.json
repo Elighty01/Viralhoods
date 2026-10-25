@@ -97,7 +97,43 @@
         "os": { "type": "string" },
         "timestamp": { "type": "string" }
       },
-      "required": ["visitorId", "page", "timestamp"]
+    "RegisteredUser": {
+      "title": "RegisteredUser",
+      "description": "User registration and login telemetry record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "registeredAt": { "type": "string" },
+        "lastLogin": { "type": "string" },
+        "loginCount": { "type": "number" },
+        "isAdmin": { "type": "boolean" },
+        "source": { "type": "string" }
+      },
+      "required": ["email", "lastLogin"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Community board user post",
+      "type": "object",
+      "properties": {
+        "authorUid": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["authorUid", "title", "type"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Flagged post report",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "reportedBy": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "required": ["postId", "reportedBy"]
     }
   },
   "firestore": {
@@ -124,6 +160,18 @@
     "/members/{memberId}": {
       "schema": { "$ref": "entities/Member" },
       "description": "Registered members and profiles"
+    },
+    "/registered_users/{userId}": {
+      "schema": { "$ref": "entities/RegisteredUser" },
+      "description": "Registered member login audit records"
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "entities/Post" },
+      "description": "User submitted community board posts"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "entities/Report" },
+      "description": "Community moderation reports"
     },
     "/analytics_visits/{visitId}": {
       "schema": { "$ref": "entities/VisitEvent" },

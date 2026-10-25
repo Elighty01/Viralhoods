@@ -17,7 +17,7 @@ import {
   updateProfile,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, getDocFromServer, collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getAnalytics, isSupported } from 'firebase/analytics';
@@ -138,22 +138,47 @@ const syncChiefAdminClaimFn = httpsCallable(functions, 'syncChiefAdminClaim');
 
 export async function refreshAdminStatus(fbUser: FirebaseUser): Promise<boolean> {
   const isChiefAdmin = fbUser.email?.trim().toLowerCase() === 'tobionlyn@gmail.com';
+  if (isChiefAdmin) return true;
+
   try {
     await syncChiefAdminClaimFn();
   } catch (err) {
     // Non-fatal: this just means the bootstrap call failed (offline, cold
     // start, etc.) — we still fall back to whatever claim is already on the
-    // cached token below.
+    // cached token or firestore record below.
     console.warn('Admin claim sync note:', err);
   }
 
+  // 1. Check ID token claims
   try {
     const tokenResult = await fbUser.getIdTokenResult(true);
-    return tokenResult.claims.admin === true || isChiefAdmin;
+    if (tokenResult.claims.admin === true) return true;
   } catch (err) {
     console.warn('Could not read ID token claims:', err);
-    return isChiefAdmin;
   }
+
+  // 2. Check Firestore /admins/{uid} doc
+  try {
+    const adminDoc = await getDoc(doc(db, 'admins', fbUser.uid));
+    if (adminDoc.exists()) return true;
+  } catch (err) {
+    // Non-fatal permission or network check
+    console.warn('Could not check admins doc by uid:', err);
+  }
+
+  // 3. Check Firestore /admins collection by email
+  if (fbUser.email) {
+    try {
+      const cleanEmail = fbUser.email.trim().toLowerCase();
+      const q = query(collection(db, 'admins'), where('email', '==', cleanEmail), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) return true;
+    } catch (err) {
+      console.warn('Could not check admins collection by email:', err);
+    }
+  }
+
+  return false;
 }
 
 export {

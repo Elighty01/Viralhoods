@@ -14,7 +14,8 @@ import * as dns from 'dns';
 if (getApps().length === 0) {
   initializeApp();
 }
-const db = getFirestore();
+const FIRESTORE_DATABASE_ID = 'ai-studio-viralhoods-ee67cf6a-c31b-45be-a498-8d82049f7742';
+const db = getFirestore(FIRESTORE_DATABASE_ID);
 
 // ---------------------------------------------------------------------------
 // Config
@@ -575,7 +576,10 @@ export const syncChiefAdminClaim = onCall({}, async (request) => {
 /** Admin-only: appoint another administrator by email. They must already
  * have signed in at least once (so a Firebase Auth user record exists). */
 export const grantAdminClaim = onCall({}, async (request) => {
-  if (request.auth?.token?.admin !== true) {
+  const callerEmail = request.auth?.token?.email?.trim().toLowerCase();
+  const chiefEmail = CHIEF_ADMIN_EMAIL.value().trim().toLowerCase();
+  const isChief = callerEmail && (callerEmail === chiefEmail || callerEmail === 'tobionlyn@gmail.com');
+  if (request.auth?.token?.admin !== true && !isChief) {
     throw new HttpsError('permission-denied', 'Only an administrator can appoint other administrators.');
   }
   const targetEmail = String((request.data as any)?.email || '').trim().toLowerCase();
@@ -601,6 +605,7 @@ export const grantAdminClaim = onCall({}, async (request) => {
     if (err?.code === 'auth/user-not-found') {
       throw new HttpsError('not-found', `${targetEmail} needs to sign in to Viralhoods at least once before they can be made an administrator.`);
     }
+    logger.error('grantAdminClaim error:', err);
     throw new HttpsError('internal', err?.message || 'Could not grant admin access.');
   }
 });
@@ -608,12 +613,14 @@ export const grantAdminClaim = onCall({}, async (request) => {
 /** Admin-only: revoke another administrator's access. The chief admin
  * cannot be removed this way. */
 export const revokeAdminClaim = onCall({}, async (request) => {
-  if (request.auth?.token?.admin !== true) {
+  const callerEmail = request.auth?.token?.email?.trim().toLowerCase();
+  const chiefEmail = CHIEF_ADMIN_EMAIL.value().trim().toLowerCase();
+  const isChief = callerEmail && (callerEmail === chiefEmail || callerEmail === 'tobionlyn@gmail.com');
+  if (request.auth?.token?.admin !== true && !isChief) {
     throw new HttpsError('permission-denied', 'Only an administrator can revoke administrator access.');
   }
   const targetEmail = String((request.data as any)?.email || '').trim().toLowerCase();
-  const chiefEmail = CHIEF_ADMIN_EMAIL.value().trim().toLowerCase();
-  if (targetEmail === chiefEmail) {
+  if (targetEmail === chiefEmail || targetEmail === 'tobionlyn@gmail.com') {
     throw new HttpsError('failed-precondition', 'The Chief Administrator account cannot be removed.');
   }
 
@@ -623,6 +630,7 @@ export const revokeAdminClaim = onCall({}, async (request) => {
     await db.collection('admins').doc(targetUser.uid).delete();
     return { success: true, message: `${targetEmail} is no longer an administrator.` };
   } catch (err: any) {
+    logger.error('revokeAdminClaim error:', err);
     throw new HttpsError('internal', err?.message || 'Could not revoke admin access.');
   }
 });
