@@ -23,8 +23,7 @@ const initialAnalytics: AnalyticsStore = {
   uniqueVisitors: 8940,
   pages: {
     'Home Feed (All 10 Sectors)': { views: 6840, uniqueVisitors: 4520, path: '#all', category: 'All', type: 'home' },
-    'AI Sector': { views: 3120, uniqueVisitors: 2150, path: '#ai', category: 'AI', type: 'sector' },
-    'Tech Sector': { views: 2840, uniqueVisitors: 1910, path: '#tech', category: 'Tech', type: 'sector' },
+    'AI & Tech Sector': { views: 3120, uniqueVisitors: 2150, path: '#ai-tech', category: 'AI & Tech', type: 'sector' },
     'World Sector': { views: 2450, uniqueVisitors: 1680, path: '#world', category: 'World', type: 'sector' },
     'Entertainment Hub (news)': { views: 2190, uniqueVisitors: 1470, path: '#entertainment/news', category: 'Entertainment', type: 'entertainment' },
     'Entertainment Hub (movies)': { views: 1820, uniqueVisitors: 1210, path: '#entertainment/movies', category: 'Entertainment', type: 'entertainment' },
@@ -38,7 +37,7 @@ const initialAnalytics: AnalyticsStore = {
     'Story: UN Plastics Treaty Binding Cap Finalized': { views: 740, uniqueVisitors: 620, path: '#story-world-01', category: 'World', type: 'story' },
     'Story: Formula 1 2026 Hybrid Power Units Regulation': { views: 680, uniqueVisitors: 560, path: '#story-sports-01', category: 'Sports', type: 'story' },
     'Story: James Webb Telescope Detects Organic Biosignatures on Exoplanet K2-18b': { views: 630, uniqueVisitors: 520, path: '#story-science-01', category: 'Science', type: 'story' },
-    'Story: DeepSeek V3 and Frontier Open-Weights Reasoning Architecture': { views: 590, uniqueVisitors: 490, path: '#story-ai-01', category: 'AI', type: 'story' },
+    'Story: DeepSeek V3 and Frontier Open-Weights Reasoning Architecture': { views: 590, uniqueVisitors: 490, path: '#story-ai-tech-01', category: 'AI & Tech', type: 'story' },
     'Brand & Logo Kit': { views: 620, uniqueVisitors: 410, path: '#brand', type: 'system' },
     'Admin Editorial Console': { views: 320, uniqueVisitors: 65, path: '#admin', type: 'system' }
   },
@@ -114,8 +113,7 @@ const sampleLocs = [
 
 const samplePages = [
   { page: 'Home Feed (All 10 Sectors)', path: '#all' },
-  { page: 'AI Sector', path: '#ai' },
-  { page: 'Tech Sector', path: '#tech' },
+  { page: 'AI & Tech Sector', path: '#ai-tech' },
   { page: 'World Sector', path: '#world' },
   { page: 'Entertainment Hub (movies)', path: '#entertainment/movies' },
   { page: 'Science Sector', path: '#science' },
