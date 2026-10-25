@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NewsItem, CommunityPost, CATEGORIES } from '../types';
 import { fetchAllPosts } from '../utils/community';
 import { formatAgo } from './NewsCard';
