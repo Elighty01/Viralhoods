@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { NewsItem, User, UnifiedSearchResponse } from '../types';
 import { NewsCard, formatAgo } from './NewsCard';
 import { NewsletterBanner } from './NewsletterBanner';
@@ -69,7 +69,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTab, setSearchTab] = useState<'all' | 'local' | 'google'>('all');
-  
+
   // Unified Search states
   const [unifiedData, setUnifiedData] = useState<UnifiedSearchResponse | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -90,39 +90,37 @@ export const FeedView: React.FC<FeedViewProps> = ({
     return matchesCategory && matchesQuery;
   });
 
-  // Pagination for the normal (non-search) browsing view. Without this the
-  // feed rendered every matching story at once — fine with a few dozen
-  // items, but the catalog now grows continuously (see the scraper's
-  // pruning rule, which still allows up to 150 stories per sector), so an
-  // unbounded render would get slower over time. Resets whenever the
-  // category, bookmarks-only toggle, or search query changes.
-  const PAGE_SIZE = 24;
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  // Pagination for sector views and the home feed. Keeps browsing manageable
+  // even when each sector accumulates a large archive of stories.
+  const PAGE_SIZE = 12;
+  const [currentPage, setCurrentPage] = useState(1);
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
+    setCurrentPage(1);
   }, [category, showOnlyBookmarks, normalizedQuery]);
 
-  // Infinite scroll: reveal the next page automatically as the reader
-  // nears the bottom of the grid, instead of requiring a click every time.
-  // The "Load more" button a little further down still works too — this
-  // sentinel just saves the click in the common case. Re-armed whenever
-  // visibleCount or the result count changes; it's a no-op once everything
-  // currently matching is already visible.
-  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   useEffect(() => {
-    const node = loadMoreSentinelRef.current;
-    if (!node || visibleCount >= filteredItems.length) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount((c) => Math.min(c + PAGE_SIZE, filteredItems.length));
-        }
-      },
-      { rootMargin: '800px 0px' }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [visibleCount, filteredItems.length]);
+    setCurrentPage((page) => Math.min(Math.max(page, 1), totalPages));
+  }, [totalPages]);
+
+  const pageWindow = useMemo(() => {
+    const pages: number[] = [];
+    const maxVisible = 5;
+    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+
+    for (let page = start; page <= end; page += 1) pages.push(page);
+    return pages;
+  }, [currentPage, totalPages]);
+
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const pageItems = filteredItems.slice(startIndex, startIndex + PAGE_SIZE);
+  const leadItem = pageItems[0] ?? null;
+  const gridItems = pageItems.slice(1);
 
   const updatedText = updatedTime ? `Updated ${formatAgo(updatedTime)}` : 'Live Feed Active';
 
@@ -898,77 +896,113 @@ export const FeedView: React.FC<FeedViewProps> = ({
                   </div>
                 ) : (
                   <div className="layout-grid">
-                  <div className="posts-main">
-                    {/* Featured Lead Story */}
-                    <NewsCard
-                      item={filteredItems[0]}
-                      lead={true}
-                      isBookmarked={bookmarks.includes(filteredItems[0].id)}
-                      onToggleBookmark={onToggleBookmark}
-                      onOpenStory={onOpenStory}
-                    />
+                    <div className="posts-main">
+                      {leadItem && (
+                        <NewsCard
+                          item={leadItem}
+                          lead={true}
+                          isBookmarked={bookmarks.includes(leadItem.id)}
+                          onToggleBookmark={onToggleBookmark}
+                          onOpenStory={onOpenStory}
+                        />
+                      )}
 
-                    {/* Newsletter In-Feed Banner */}
-                    <NewsletterBanner onSubscribe={onSubscribe} />
+                      {/* Newsletter In-Feed Banner */}
+                      <NewsletterBanner onSubscribe={onSubscribe} />
 
-                    {/* Subsequent Stories Grid — paginated, see visibleCount above */}
-                    {filteredItems.length > 1 && (
-                      <div className="grid">
-                        {filteredItems.slice(1, visibleCount).map((item) => (
-                          <NewsCard
-                            key={item.id}
-                            item={item}
-                            lead={false}
-                            isBookmarked={bookmarks.includes(item.id)}
-                            onToggleBookmark={onToggleBookmark}
-                            onOpenStory={onOpenStory}
-                          />
-                        ))}
-                      </div>
-                    )}
+                      {/* Subsequent Stories Grid — paginated for large sector catalogs */}
+                      {gridItems.length > 0 && (
+                        <div className="grid">
+                          {gridItems.map((item) => (
+                            <NewsCard
+                              key={item.id}
+                              item={item}
+                              lead={false}
+                              isBookmarked={bookmarks.includes(item.id)}
+                              onToggleBookmark={onToggleBookmark}
+                              onOpenStory={onOpenStory}
+                            />
+                          ))}
+                        </div>
+                      )}
 
-                    {filteredItems.length > visibleCount && (
-                      <>
-                        {/* Invisible trigger the infinite-scroll observer above
-                            watches — sits ~800px above the real bottom so the
-                            next page is already in place by the time the
-                            reader scrolls there. */}
-                        <div ref={loadMoreSentinelRef} aria-hidden="true" style={{ height: '1px' }} />
-                        <div style={{ display: 'flex', justifyContent: 'center', margin: '28px 0 8px' }}>
+                      {filteredItems.length > PAGE_SIZE && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            flexWrap: 'wrap',
+                            gap: '10px',
+                            margin: '28px 0 8px',
+                            paddingTop: '20px',
+                            borderTop: '1px solid var(--line)',
+                            alignItems: 'center',
+                          }}
+                        >
                           <button
                             type="button"
-                            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
                             className="btn-outline"
-                            style={{ padding: '10px 24px', fontWeight: 700, fontSize: '0.9rem' }}
+                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                            disabled={currentPage === 1}
+                            style={{ opacity: currentPage === 1 ? 0.5 : 1 }}
                           >
-                            Load More ({filteredItems.length - visibleCount} remaining)
+                            Prev
+                          </button>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                            {pageWindow.map((page) => (
+                              <button
+                                key={page}
+                                type="button"
+                                onClick={() => setCurrentPage(page)}
+                                style={{
+                                  minWidth: '36px',
+                                  height: '36px',
+                                  borderRadius: '8px',
+                                  border: '1px solid var(--line)',
+                                  background: currentPage === page ? 'var(--blue)' : 'var(--bg-card)',
+                                  color: currentPage === page ? '#fff' : 'var(--fg)',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                {page}
+                              </button>
+                            ))}
+                          </div>
+
+                          <button
+                            type="button"
+                            className="btn-outline"
+                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                            disabled={currentPage === totalPages}
+                            style={{ opacity: currentPage === totalPages ? 0.5 : 1 }}
+                          >
+                            Next
                           </button>
                         </div>
-                      </>
-                    )}
+                      )}
 
-                    {filteredItems.length > PAGE_SIZE && filteredItems.length <= visibleCount && (
-                      <div
-                        style={{
-                          textAlign: 'center',
-                          color: 'var(--fg-muted)',
-                          fontSize: '0.88rem',
-                          margin: '28px 0 8px',
-                          paddingTop: '20px',
-                          borderTop: '1px solid var(--line)',
-                        }}
-                      >
-                        You're all caught up — {filteredItems.length} stories shown.
-                      </div>
-                    )}
-                  </div>
+                      {filteredItems.length > PAGE_SIZE && (
+                        <div
+                          style={{
+                            textAlign: 'center',
+                            color: 'var(--fg-muted)',
+                            fontSize: '0.88rem',
+                            margin: '10px 0 8px',
+                          }}
+                        >
+                          Page {currentPage} of {totalPages} · {filteredItems.length} stories shown
+                        </div>
+                      )}
+                    </div>
 
-                  <Sidebar
-                    items={items}
-                    onOpenStory={onOpenStory}
-                    onSelectCategory={onSelectCategory}
-                    onNavigateCommunity={onNavigateCommunity}
-                  />
+                    <Sidebar
+                      items={items}
+                      onOpenStory={onOpenStory}
+                      onSelectCategory={onSelectCategory}
+                      onNavigateCommunity={onNavigateCommunity}
+                    />
                   </div>
                 )}
               </>
