@@ -184,9 +184,8 @@ app.post('/api/scraper/trigger', async (req, res) => {
       pruned: result.pruned,
       total: result.total,
     });
-  } catch (err: any) {
-    console.error('Scraper trigger error:', err);
-    return res.status(500).json({ error: err.message || 'Scraper failed' });
+  } catch (_err) {
+    return res.status(500).json({ error: 'Scraper failed' });
   }
 });
 
@@ -194,13 +193,26 @@ app.post('/api/scraper/trigger', async (req, res) => {
 // AI Assistant & Media Studio API Endpoints
 // ---------------------------------------------------------------------------
 
+function isValidApiKey(key: string | undefined): boolean {
+  if (!key) return false;
+  const trimmed = key.trim();
+  if (trimmed.length < 15) return false;
+  if (trimmed.includes('YOUR_') || trimmed.includes('placeholder') || trimmed.includes('undefined')) return false;
+  return true;
+}
+
+const AI_FALLBACK_RESPONSE = {
+  error: 'Not working at the moment, try back later',
+  text: 'Not working at the moment, try back later',
+};
+
 app.post('/api/ai/chat', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    if (!isValidApiKey(apiKey)) {
+      return res.json(AI_FALLBACK_RESPONSE);
     }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: apiKey! });
     const { messages = [], model = 'gemini-3.8-flash', useSearch = true, activeSector } = req.body || {};
 
     const preamble = `You are the Viralhoods AI Intelligence Assistant. Be concise, factual, and helpful. Current sector: ${activeSector || 'All'}.`;
@@ -225,7 +237,7 @@ app.post('/api/ai/chat', async (req, res) => {
         const chunks = (response as any)?.candidates?.[0]?.groundingMetadata?.webSearchQueries;
         if (Array.isArray(chunks)) searchGrounding = chunks;
       } catch {
-        // fallback to standard generation
+        // Fall back to standard generation without search
       }
     }
 
@@ -237,22 +249,25 @@ app.post('/api/ai/chat', async (req, res) => {
       text = response.text || '';
     }
 
+    if (!text) {
+      return res.json(AI_FALLBACK_RESPONSE);
+    }
+
     return res.json({ text, searchGrounding });
-  } catch (err) {
-    console.error('Chat error:', err);
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  } catch (_err) {
+    return res.json(AI_FALLBACK_RESPONSE);
   }
 });
 
 app.post('/api/ai/image', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    if (!isValidApiKey(apiKey)) {
+      return res.json(AI_FALLBACK_RESPONSE);
     }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: apiKey! });
     const { prompt } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+    if (!prompt) return res.json(AI_FALLBACK_RESPONSE);
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite-image',
@@ -266,22 +281,21 @@ app.post('/api/ai/image', async (req, res) => {
     if (imagePart) {
       return res.json({ imageBase64: imagePart.inlineData.data });
     }
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
-  } catch (err) {
-    console.error('Image generation error:', err);
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    return res.json(AI_FALLBACK_RESPONSE);
+  } catch (_err) {
+    return res.json(AI_FALLBACK_RESPONSE);
   }
 });
 
 app.post('/api/ai/video', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    if (!isValidApiKey(apiKey)) {
+      return res.json(AI_FALLBACK_RESPONSE);
     }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: apiKey! });
     const { prompt, aspectRatio = '16:9', imageBase64 } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+    if (!prompt) return res.json(AI_FALLBACK_RESPONSE);
 
     let videoBase64: string | null = null;
     if ((ai as any).interactions && typeof (ai as any).interactions.create === 'function') {
@@ -315,64 +329,61 @@ app.post('/api/ai/video', async (req, res) => {
     if (videoBase64) {
       return res.json({ videoBase64 });
     }
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
-  } catch (err) {
-    console.error('Video generation error:', err);
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    return res.json(AI_FALLBACK_RESPONSE);
+  } catch (_err) {
+    return res.json(AI_FALLBACK_RESPONSE);
   }
 });
 
 app.post('/api/ai/music', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    if (!isValidApiKey(apiKey)) {
+      return res.json(AI_FALLBACK_RESPONSE);
     }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: apiKey! });
     const { prompt } = req.body || {};
-    if (!prompt) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+    if (!prompt) return res.json(AI_FALLBACK_RESPONSE);
 
     const response = await ai.models.generateContent({
       model: 'lyria-3-clip-preview',
       contents: prompt,
     });
     return res.json({ text: response.text || 'Audio track generated.' });
-  } catch (err) {
-    console.error('Music generation error:', err);
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  } catch (_err) {
+    return res.json(AI_FALLBACK_RESPONSE);
   }
 });
 
 app.post('/api/ai/maps', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    if (!isValidApiKey(apiKey)) {
+      return res.json(AI_FALLBACK_RESPONSE);
     }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: apiKey! });
     const { query } = req.body || {};
-    if (!query) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+    if (!query) return res.json(AI_FALLBACK_RESPONSE);
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.8-flash',
       contents: `Provide an accurate, concise geographical and institutional report on: ${query}`,
     });
     return res.json({ text: response.text || '' });
-  } catch (err) {
-    console.error('Maps query error:', err);
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  } catch (_err) {
+    return res.json(AI_FALLBACK_RESPONSE);
   }
 });
 
 app.post('/api/ai/transcribe', async (req, res) => {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'Not working at the moment, try back later' });
+    if (!isValidApiKey(apiKey)) {
+      return res.json(AI_FALLBACK_RESPONSE);
     }
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: apiKey! });
     const { audioBase64, mimeType = 'audio/webm' } = req.body || {};
-    if (!audioBase64) return res.status(400).json({ error: 'Not working at the moment, try back later' });
+    if (!audioBase64) return res.json(AI_FALLBACK_RESPONSE);
 
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-transcribe',
@@ -387,9 +398,8 @@ app.post('/api/ai/transcribe', async (req, res) => {
       ],
     });
     return res.json({ text: (response.text || '').trim() });
-  } catch (err) {
-    console.error('Transcription error:', err);
-    return res.status(500).json({ error: 'Not working at the moment, try back later' });
+  } catch (_err) {
+    return res.json(AI_FALLBACK_RESPONSE);
   }
 });
 

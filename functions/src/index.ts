@@ -758,9 +758,8 @@ export const geminiGenerateImage = onCall(GEN_CONFIG, async (request) => {
       return { imageBase64: imagePart.inlineData.data, isSvg: false, message: 'Image generated.' };
     }
     throw new Error('No image returned by the model.');
-  } catch (err: any) {
-    logger.error('Image generation failed:', err as any);
-    throw new HttpsError('internal', err?.message || 'Image generation failed.');
+  } catch (_err: any) {
+    throw new HttpsError('internal', 'Not working at the moment, try back later');
   }
 });
 
@@ -771,7 +770,7 @@ export const geminiGenerateVideo = onCall(GEN_CONFIG, async (request) => {
   if (!data?.prompt?.trim()) throw new HttpsError('invalid-argument', 'A prompt is required.');
 
   const apiKey = GEMINI_API_KEY.value();
-  if (!apiKey) throw new HttpsError('failed-precondition', 'Video generation is not configured yet (missing GEMINI_API_KEY).');
+  if (!apiKey) throw new HttpsError('failed-precondition', 'Not working at the moment, try back later');
   const aiClient = new GoogleGenAI({ apiKey });
 
   try {
@@ -803,9 +802,8 @@ export const geminiGenerateVideo = onCall(GEN_CONFIG, async (request) => {
       }
     }
     throw new Error('Video generation failed.');
-  } catch (err: any) {
-    logger.error('Video generation failed:', err as any);
-    throw new HttpsError('internal', err?.message || 'Video generation failed.');
+  } catch (_err: any) {
+    throw new HttpsError('internal', 'Not working at the moment, try back later');
   }
 });
 
@@ -816,7 +814,7 @@ export const geminiGenerateMusic = onCall(GEN_CONFIG, async (request) => {
   if (!data?.prompt?.trim()) throw new HttpsError('invalid-argument', 'A prompt is required.');
 
   const apiKey = GEMINI_API_KEY.value();
-  if (!apiKey) throw new HttpsError('failed-precondition', 'Music generation is not configured yet (missing GEMINI_API_KEY).');
+  if (!apiKey) throw new HttpsError('failed-precondition', 'Not working at the moment, try back later');
   const aiClient = new GoogleGenAI({ apiKey });
 
   try {
@@ -825,9 +823,8 @@ export const geminiGenerateMusic = onCall(GEN_CONFIG, async (request) => {
       contents: data.prompt,
     });
     return { text: res.text || 'Audio track composed.' };
-  } catch (err: any) {
-    logger.error('Music generation failed:', err as any);
-    throw new HttpsError('internal', err?.message || 'Music generation failed.');
+  } catch (_err: any) {
+    throw new HttpsError('internal', 'Not working at the moment, try back later');
   }
 });
 
@@ -842,15 +839,19 @@ export const geminiMapsQuery = onCall(GEN_CONFIG, async (request) => {
   if (!data?.query?.trim()) throw new HttpsError('invalid-argument', 'A query is required.');
 
   const apiKey = GEMINI_API_KEY.value();
-  if (!apiKey) throw new HttpsError('failed-precondition', 'This feature is not configured yet (missing GEMINI_API_KEY).');
+  if (!apiKey) throw new HttpsError('failed-precondition', 'Not working at the moment, try back later');
   const aiClient = new GoogleGenAI({ apiKey });
   const model = GEMINI_MODEL.value() || 'gemini-3.8-flash';
 
-  const res = await aiClient.models.generateContent({
-    model,
-    contents: `Answer this geography/places question concisely and factually, noting if anything may have changed recently: ${data.query}`,
-  });
-  return { text: res.text || 'No answer generated.' };
+  try {
+    const res = await aiClient.models.generateContent({
+      model,
+      contents: `Answer this geography/places question concisely and factually, noting if anything may have changed recently: ${data.query}`,
+    });
+    return { text: res.text || 'Not working at the moment, try back later' };
+  } catch (_err) {
+    throw new HttpsError('internal', 'Not working at the moment, try back later');
+  }
 });
 
 /** Drafts a full article from a topic/notes for the Admin "create story"

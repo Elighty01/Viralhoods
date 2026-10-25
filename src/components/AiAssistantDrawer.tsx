@@ -203,6 +203,9 @@ export const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({
                 });
                 if (resp.ok) {
                   const data = await resp.json();
+                  if (data.error) {
+                    throw new Error(data.error);
+                  }
                   textResult = data.text || '';
                 }
               } catch {

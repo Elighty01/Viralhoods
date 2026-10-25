@@ -83,6 +83,12 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
           const data = await resp.json();
           if (data.videoBase64) {
             videoBase64 = data.videoBase64;
+          } else if (data.error) {
+            setStatusNotice({
+              type: 'error',
+              message: 'Not working at the moment, try back later',
+            });
+            return;
           }
         }
       } catch {
@@ -152,6 +158,9 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
           const data = await resp.json();
           if (data.imageBase64) {
             imageBase64 = data.imageBase64;
+          } else if (data.error) {
+            setStatusNotice({ type: 'error', message: 'Not working at the moment, try back later' });
+            return;
           }
         }
       } catch {
@@ -200,6 +209,10 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
         });
         if (resp.ok) {
           const data = await resp.json();
+          if (data.error) {
+            setStatusNotice({ type: 'error', message: 'Not working at the moment, try back later' });
+            return;
+          }
           textResult = data.text || 'Audio track composed.';
         }
       } catch {
@@ -243,6 +256,10 @@ export const AiMediaStudioModal: React.FC<AiMediaStudioModalProps> = ({
         });
         if (resp.ok) {
           const data = await resp.json();
+          if (data.error) {
+            setStatusNotice({ type: 'error', message: 'Not working at the moment, try back later' });
+            return;
+          }
           textResult = data.text || null;
         }
       } catch {
