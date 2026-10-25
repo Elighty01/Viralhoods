@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Viralhoods</title>
+    <script>
+      // Single Page Apps for GitHub Pages & Static Hosting
+      // Preserves deep route paths like /about, /admin, /community, /story/:id, /tech, etc.
+      // Redirects to index.html with the route encoded in search query / hash
+      (function() {
+        var pathSegmentsToKeep = 0;
+        var l = window.location;
+        // If hosted on GitHub Pages in a repository subpath (e.g. /Viralhoods/), detect repo segment
+        var path = l.pathname;
+        var parts = path.split('/').filter(Boolean);
+        var search = l.search ? l.search : '';
+        var hash = l.hash ? l.hash : '';
+
+        // If the path starts with a repo name like Viralhoods, keep it as base
+        var isRepoSubpath = parts.length > 0 && (parts[0].toLowerCase() === 'viralhoods');
+        var repoPrefix = isRepoSubpath ? '/' + parts[0] : '';
+        var routePath = isRepoSubpath ? parts.slice(1).join('/') : parts.join('/');
+
+        // Construct clean target url with hash navigation
+        var targetUrl = l.protocol + '//' + l.host + repoPrefix + '/#' + (routePath ? routePath : 'All') + (search ? '?' + search.slice(1) : '');
+        l.replace(targetUrl);
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Navigating to Viralhoods...</p>
+  </body>
+</html>

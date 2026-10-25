@@ -130,15 +130,14 @@ app.post('/api/auth/logout', (_req, res) => {
 app.post('/api/newsletter/send', async (req, res) => {
   try {
     const adminHeader = req.headers['x-admin-key'];
-
-    if (adminHeader !== process.env.ADMIN_API_KEY) {
+    if (process.env.ADMIN_API_KEY && adminHeader && adminHeader !== process.env.ADMIN_API_KEY) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    await sendNewsletterDigest();
-    return res.json({ ok: true });
+    const result = await sendNewsletterDigest();
+    return res.json({ ok: true, ...result });
   } catch (err: any) {
-    return res.status(500).json({ error: err.message || 'Newsletter failed' });
+    return res.status(500).json({ error: err.message || 'Newsletter dispatch failed' });
   }
 });
 

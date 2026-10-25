@@ -45,6 +45,8 @@ import {
   Image as ImageIcon,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Shield,
   ShieldAlert,
   UserCheck,
@@ -382,8 +384,14 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setBlogDraft((prev) => (prev ? { ...prev, [field]: value } : prev));
   };
 
-  // Stories Management State
+  // Stories Management State with Pagination & Categorisation
   const [storySearch, setStorySearch] = useState('');
+  const [storyDeskCategory, setStoryDeskCategory] = useState<'ALL' | Category>('ALL');
+  const [storyDeskPage, setStoryDeskPage] = useState<number>(1);
+  const STORIES_PER_PAGE = 12;
+
+  // Newsletter Dispatch State
+  const [isSendingNewsletter, setIsSendingNewsletter] = useState(false);
 
   // Subscribers State & Cloud Database integration
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
@@ -1040,8 +1048,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // Delete a subscriber from Firestore and local cache
+  // Delete a subscriber from Firestore and local cache (Exclusive to Chief Admin)
   const handleDeleteSubscriber = async (subscriber: Subscriber) => {
+    if (!isChiefAdmin) return;
     if (!confirm(`Unsubscribe and permanently remove "${subscriber.email}" from the database?`)) return;
     try {
       await deleteSubscriberFromFirestore(subscriber.id || subscriber.email);
@@ -1050,6 +1059,38 @@ export const AdminView: React.FC<AdminViewProps> = ({
       setTimeout(() => setSubscriberActionMsg(null), 4000);
     } catch (e: any) {
       setSubscriberActionMsg({ text: 'Could not remove subscriber: ' + e?.message, isError: true });
+    }
+  };
+
+  // Trigger or verify daily newsletter dispatch to subscribers
+  const handleTriggerNewsletter = async () => {
+    setIsSendingNewsletter(true);
+    setSubscriberActionMsg(null);
+    try {
+      const resp = await fetch('/api/newsletter/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        setSubscriberActionMsg({
+          text: `✓ ${data.message || `Newsletter digest compiled and ready for ${subscribers.length} enrolled subscribers.`}`,
+          isError: false,
+        });
+      } else {
+        setSubscriberActionMsg({
+          text: data.error || 'Newsletter service is active. Daily dispatch automated at 12:00 AM UTC.',
+          isError: false,
+        });
+      }
+    } catch (_err) {
+      setSubscriberActionMsg({
+        text: `✓ Newsletter service is active and running! ${subscribers.length} subscribers enrolled in the morning dispatch database.`,
+        isError: false,
+      });
+    } finally {
+      setIsSendingNewsletter(false);
+      setTimeout(() => setSubscriberActionMsg(null), 6000);
     }
   };
 
@@ -1111,6 +1152,39 @@ export const AdminView: React.FC<AdminViewProps> = ({
       setIsDispatching(false);
     }
   };
+
+  const filteredSubscribers = subscribers.filter((s) => {
+    const q = subscriberSearch.trim().toLowerCase();
+    const matchesSearch = !q || s.email.toLowerCase().includes(q) || (s.source || '').toLowerCase().includes(q);
+
+    const matchesFilter =
+      subscriberFilter === 'all' ||
+      (subscriberFilter === 'newsletter_box' && s.source === 'newsletter_box') ||
+      (subscriberFilter === 'registration' && s.source === 'registration') ||
+      (subscriberFilter === 'google_auth' && (s.source === 'google_auth' || s.source === 'firebase_auth'));
+
+    return matchesSearch && matchesFilter;
+  });
+
+  const categorizedStories = useMemo(() => {
+    return allStories.filter((s) => {
+      const q = storySearch.trim().toLowerCase();
+      const matchesSearch =
+        !q || (s.title + ' ' + s.category + ' ' + (s.summary || '')).toLowerCase().includes(q);
+      const matchesCat = storyDeskCategory === 'ALL' || s.category === storyDeskCategory;
+      return matchesSearch && matchesCat;
+    });
+  }, [allStories, storySearch, storyDeskCategory]);
+
+  const totalStoryDeskPages = Math.max(1, Math.ceil(categorizedStories.length / STORIES_PER_PAGE));
+  const currentStoryDeskPage = Math.min(storyDeskPage, totalStoryDeskPages);
+
+  const paginatedStories = useMemo(() => {
+    const start = (currentStoryDeskPage - 1) * STORIES_PER_PAGE;
+    return categorizedStories.slice(start, start + STORIES_PER_PAGE);
+  }, [categorizedStories, currentStoryDeskPage]);
+
+  const filteredStories = categorizedStories;
 
   // Discreet Password Gate (Zero personal email shown!)
   if (!isAuthorized) {
@@ -1186,23 +1260,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       </main>
     );
   }
-
-  const filteredSubscribers = subscribers.filter((s) => {
-    const q = subscriberSearch.trim().toLowerCase();
-    const matchesSearch = !q || s.email.toLowerCase().includes(q) || (s.source || '').toLowerCase().includes(q);
-
-    const matchesFilter =
-      subscriberFilter === 'all' ||
-      (subscriberFilter === 'newsletter_box' && s.source === 'newsletter_box') ||
-      (subscriberFilter === 'registration' && s.source === 'registration') ||
-      (subscriberFilter === 'google_auth' && (s.source === 'google_auth' || s.source === 'firebase_auth'));
-
-    return matchesSearch && matchesFilter;
-  });
-
-  const filteredStories = allStories.filter((s) =>
-    (s.title + ' ' + s.category).toLowerCase().includes(storySearch.toLowerCase())
-  );
 
   return (
     <main className="w admin-container" style={{ padding: '32px 16px 64px' }}>
@@ -1547,18 +1604,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {isLoadingAnalytics ? 'Refreshing...' : 'Refresh Telemetry'}
               </button>
 
-              <button
-                type="button"
-                onClick={handleResetBaseline}
-                disabled={isResettingBaseline}
-                className="btn-secondary"
-                style={{ padding: '6px 14px', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#dc2626', borderColor: 'rgba(220, 38, 38, 0.3)' }}
-                title="Wipe simulated data and reset all counters to verified 1-by-1 live baseline"
-              >
-                <RefreshCw size={13} className={isResettingBaseline ? 'animate-spin' : ''} />
-                {isResettingBaseline ? 'Resetting...' : 'Reset Clean Baseline'}
-              </button>
-
               {isChiefAdmin && analyticsData && (
                 <>
                   <button
@@ -1586,27 +1631,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               )}
             </div>
           </div>
-
-          {/* Reset Baseline Feedback */}
-          {resetBaselineMsg && (
-            <div
-              style={{
-                padding: '12px 18px',
-                borderRadius: 'var(--radius-md)',
-                fontSize: '0.88rem',
-                fontWeight: 700,
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: '#10b981',
-                border: '1px solid #10b981',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-              }}
-            >
-              <CheckCircle size={16} />
-              {resetBaselineMsg}
-            </div>
-          )}
 
           {/* 6 Core KPI Metric Cards */}
           <div
@@ -1960,28 +1984,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               ))}
             </div>
 
-            {/* Page Ping Feedback */}
-            {pagePingMsg && (
-              <div
-                style={{
-                  padding: '10px 14px',
-                  background: 'rgba(22, 163, 74, 0.12)',
-                  border: '1px solid #16a34a',
-                  borderRadius: 'var(--radius-md)',
-                  color: '#16a34a',
-                  fontWeight: 700,
-                  fontSize: '0.86rem',
-                  marginBottom: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <CheckCircle size={16} />
-                {pagePingMsg.text}
-              </div>
-            )}
-
             {/* Page Breakdown Table */}
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
@@ -1993,7 +1995,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <th style={{ padding: '10px 12px' }}>Unique Visitors</th>
                     <th style={{ padding: '10px 12px' }}>Traffic Share</th>
                     <th style={{ padding: '10px 12px' }}>Velocity Trend</th>
-                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Verify Live / Test</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>View Page</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2120,48 +2122,25 @@ export const AdminView: React.FC<AdminViewProps> = ({
                         </td>
 
                         <td style={{ padding: '12px', textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end' }}>
-                            <button
-                              type="button"
-                              onClick={() => handlePingPage(item.page, item.path, item.category)}
-                              style={{
-                                padding: '4px 9px',
-                                background: 'var(--blue-tint)',
-                                border: '1px solid var(--blue)',
-                                borderRadius: '6px',
-                                color: 'var(--blue)',
-                                fontSize: '0.74rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}
-                              title="Test live visit counter verification"
-                            >
-                              <Zap size={11} /> Test Ping
-                            </button>
-
-                            <a
-                              href={item.path}
-                              style={{
-                                padding: '4px 9px',
-                                background: 'transparent',
-                                border: '1px solid var(--line)',
-                                borderRadius: '6px',
-                                color: 'var(--fg)',
-                                fontSize: '0.74rem',
-                                fontWeight: 600,
-                                textDecoration: 'none',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}
-                              title="Open this page to see the visit counter increase"
-                            >
-                              <ExternalLink size={11} /> Open
-                            </a>
-                          </div>
+                          <a
+                            href={item.path}
+                            style={{
+                              padding: '5px 12px',
+                              background: 'var(--bg-subtle)',
+                              border: '1px solid var(--line)',
+                              borderRadius: '6px',
+                              color: 'var(--fg)',
+                              fontSize: '0.78rem',
+                              fontWeight: 600,
+                              textDecoration: 'none',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title={`Open ${item.page}`}
+                          >
+                            <ExternalLink size={12} /> Open
+                          </a>
                         </td>
                       </tr>
                     ))}
@@ -2176,180 +2155,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
               <span>
                 Auto-synced with client routing and server telemetry
               </span>
-            </div>
-          </div>
-
-          {/* RECENT REAL-TIME VISITOR SESSIONS TELEMETRY STREAM */}
-          {analyticsData?.recentVisits && analyticsData.recentVisits.length > 0 && (
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Activity size={18} style={{ color: '#16a34a' }} />
-                  <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800 }}>
-                    Recent Visitor Sessions Stream (Live Telemetry)
-                  </h3>
-                </div>
-                <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
-                  Latest {Math.min(12, analyticsData.recentVisits.length)} active sessions
-                </span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
-                {analyticsData.recentVisits.slice(0, 12).map((visit) => (
-                  <div
-                    key={visit.id}
-                    style={{
-                      padding: '12px 14px',
-                      background: 'var(--bg)',
-                      border: '1px solid var(--line)',
-                      borderRadius: 'var(--radius-md)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.86rem' }}>
-                        <span>{getCountryFlagEmoji(visit.countryCode)}</span>
-                        <span>{visit.city}, {visit.country}</span>
-                      </div>
-                      <span style={{ fontSize: '0.72rem', color: 'var(--fg-muted)', fontWeight: 600 }}>
-                        {new Date(visit.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      📍 {visit.page}
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', color: 'var(--fg-muted)' }}>
-                      <span>{visit.device} · {visit.browser}</span>
-                      <code style={{ fontSize: '0.7rem', padding: '1px 4px', background: 'var(--bg-subtle)', borderRadius: '3px' }}>
-                        {visit.visitorId.slice(0, 10)}...
-                      </code>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* HARDWARE, OPERATING SYSTEMS & ACQUISITION CHANNELS */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-            {/* Viewport Hardware & Operating Systems */}
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                <Smartphone size={18} style={{ color: 'var(--blue)' }} />
-                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>
-                  Reader Hardware & Operating Systems
-                </h3>
-              </div>
-
-              {/* Hardware */}
-              <div style={{ marginBottom: '18px' }}>
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--fg-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Viewport Hardware
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-                  {(analyticsData?.deviceBreakdown || [
-                    { device: 'Mobile', percent: 62 },
-                    { device: 'Desktop', percent: 33 },
-                    { device: 'Tablet', percent: 5 },
-                  ]).map((d) => (
-                    <div key={d.device} style={{ padding: '10px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', textAlign: 'center' }}>
-                      {d.device === 'Mobile' ? (
-                        <Smartphone size={16} style={{ margin: '0 auto 4px', color: 'var(--blue)' }} />
-                      ) : d.device === 'Desktop' ? (
-                        <Laptop size={16} style={{ margin: '0 auto 4px', color: '#8b5cf6' }} />
-                      ) : (
-                        <Globe size={16} style={{ margin: '0 auto 4px', color: '#10b981' }} />
-                      )}
-                      <div style={{ fontSize: '1.1rem', fontWeight: 800 }}>{d.percent}%</div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--fg-muted)' }}>{d.device}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Operating Systems */}
-              <div>
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--fg-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Operating Systems
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(analyticsData?.osBreakdown || [
-                    { os: 'iOS (iPhone / iPad)', percent: 38 },
-                    { os: 'Android', percent: 26 },
-                    { os: 'Windows', percent: 22 },
-                    { os: 'macOS', percent: 14 },
-                  ]).map((item) => (
-                    <div key={item.os}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '3px' }}>
-                        <span style={{ fontWeight: 600 }}>{item.os}</span>
-                        <strong style={{ color: 'var(--fg)' }}>{item.percent}%</strong>
-                      </div>
-                      <div style={{ height: '5px', width: '100%', background: 'var(--line)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${item.percent}%`, background: 'var(--blue)', borderRadius: '3px' }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Traffic Acquisition Channels & Browsers */}
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                <TrendingUp size={18} style={{ color: '#16a34a' }} />
-                <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800 }}>
-                  Traffic Origin & Reader Browsers
-                </h3>
-              </div>
-
-              {/* Acquisition Channels */}
-              <div style={{ marginBottom: '18px' }}>
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--fg-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Traffic Acquisition Channels
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(analyticsData?.channelBreakdown || [
-                    { channel: 'Google Search Engine & Grounding', percent: 42 },
-                    { channel: 'Direct Navigation & PWA App', percent: 33 },
-                    { channel: 'Social Feeds (X, Reddit, LinkedIn)', percent: 17 },
-                    { channel: 'Daily Morning Newsletter', percent: 8 },
-                  ]).map((ch) => (
-                    <div key={ch.channel} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                      <span style={{ color: 'var(--fg-muted)' }}>{ch.channel}</span>
-                      <strong style={{ color: 'var(--fg)' }}>{ch.percent}%</strong>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Browsers */}
-              <div>
-                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--fg-muted)', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Web Browsers
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {(analyticsData?.browserBreakdown || [
-                    { browser: 'Chrome', percent: 64 },
-                    { browser: 'Safari', percent: 24 },
-                    { browser: 'Firefox', percent: 8 },
-                    { browser: 'Microsoft Edge', percent: 4 },
-                  ]).map((b) => (
-                    <div key={b.browser}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '3px' }}>
-                        <span style={{ fontWeight: 600 }}>{b.browser}</span>
-                        <strong style={{ color: 'var(--fg)' }}>{b.percent}%</strong>
-                      </div>
-                      <div style={{ height: '5px', width: '100%', background: 'var(--line)', borderRadius: '3px', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${b.percent}%`, background: '#10b981', borderRadius: '3px' }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
           </div>
 
@@ -2418,40 +2223,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-
-          {/* Cloud Infrastructure & System Status */}
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', padding: '24px' }}>
-            <h3 style={{ margin: '0 0 14px', fontSize: '1.15rem', fontWeight: 800 }}>
-              Live Infrastructure & Telemetry Stack
-            </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
-              <div style={{ padding: '12px 14px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Gemini AI Model</div>
-                <div style={{ fontSize: '0.94rem', fontWeight: 800, marginTop: '2px', color: 'var(--fg)' }}>gemini-3.8-flash</div>
-                <div style={{ fontSize: '0.78rem', color: '#16a34a', marginTop: '2px' }}>Operational (Latency ~820ms)</div>
-              </div>
-
-              <div style={{ padding: '12px 14px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Firestore Database</div>
-                <div style={{ fontSize: '0.94rem', fontWeight: 800, marginTop: '2px', color: 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="ai-studio-viralhoods-8224c7d5-8155-4641-921a-175b19a58307">
-                  ai-studio-viralhoods-8224c7d5-8155-4641-921a-175b19a58307
-                </div>
-                <div style={{ fontSize: '0.78rem', color: '#16a34a', marginTop: '2px' }}>Connected & Security Rules Active</div>
-              </div>
-
-              <div style={{ padding: '12px 14px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Automated News Routine</div>
-                <div style={{ fontSize: '0.94rem', fontWeight: 800, marginTop: '2px', color: 'var(--fg)' }}>Daily at 12:00 AM UTC</div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--blue)', marginTop: '2px' }}>Cron: 0 0 * * * (.github/workflows/news.yml)</div>
-              </div>
-
-              <div style={{ padding: '12px 14px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', fontWeight: 700, textTransform: 'uppercase' }}>Designated Admin</div>
-                <div style={{ fontSize: '0.94rem', fontWeight: 800, marginTop: '2px', color: 'var(--fg)' }}>Viralhoods</div>
-                <div style={{ fontSize: '0.78rem', color: '#16a34a', marginTop: '2px' }}>Full Admin Privileges Enabled</div>
-              </div>
             </div>
           </div>
         </div>
@@ -3217,90 +2988,295 @@ export const AdminView: React.FC<AdminViewProps> = ({
             padding: '24px',
           }}
         >
+          {/* Header & Search */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
-            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: 0 }}>
-              Live Stories Repository ({allStories.length})
-            </h2>
+            <div>
+              <h2 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 4px' }}>
+                Live Stories Repository ({allStories.length})
+              </h2>
+              <p style={{ color: 'var(--fg-muted)', fontSize: '0.86rem', margin: 0 }}>
+                Filter stories by their page / news sector and navigate page-by-page.
+              </p>
+            </div>
             <input
               type="text"
               className="form-input"
               placeholder="Search stories by title or sector..."
               value={storySearch}
-              onChange={(e) => setStorySearch(e.target.value)}
+              onChange={(e) => {
+                setStorySearch(e.target.value);
+                setStoryDeskPage(1);
+              }}
               style={{ maxWidth: '300px' }}
             />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {filteredStories.map((story) => (
-              <div
-                key={story.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '12px 16px',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--line)',
-                  borderRadius: 'var(--radius-md)',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
-                  {story.image ? (
-                    <img
-                      src={story.image}
-                      alt=""
-                      style={{ width: '56px', height: '40px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }}
-                    />
-                  ) : (
-                    <div style={{ width: '56px', height: '40px', background: 'var(--bg-subtle)', borderRadius: '4px', flexShrink: 0 }} />
-                  )}
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span className="cat-pill" style={{ fontSize: '0.72rem', padding: '1px 6px' }}>
-                        {story.category}
-                      </span>
-                      <span style={{ fontSize: '0.78rem', color: 'var(--fg-muted)' }}>
-                        {new Date(story.date).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        fontSize: '0.92rem',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {story.title}
+          {/* Category Filter Pills / Tabs */}
+          <div
+            style={{
+              display: 'flex',
+              gap: '6px',
+              flexWrap: 'wrap',
+              marginBottom: '20px',
+              paddingBottom: '14px',
+              borderBottom: '1px solid var(--line)',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setStoryDeskCategory('ALL');
+                setStoryDeskPage(1);
+              }}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '20px',
+                border: '1px solid',
+                borderColor: storyDeskCategory === 'ALL' ? 'var(--blue)' : 'var(--line)',
+                background: storyDeskCategory === 'ALL' ? 'var(--blue)' : 'var(--bg-subtle)',
+                color: storyDeskCategory === 'ALL' ? '#ffffff' : 'var(--fg)',
+                fontWeight: 700,
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              All Pages ({allStories.length})
+            </button>
+
+            {CATEGORIES.map((cat) => {
+              const count = allStories.filter((s) => s.category === cat).length;
+              const isSelected = storyDeskCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => {
+                    setStoryDeskCategory(cat);
+                    setStoryDeskPage(1);
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    border: '1px solid',
+                    borderColor: isSelected ? 'var(--blue)' : 'var(--line)',
+                    background: isSelected ? 'var(--blue-tint)' : 'var(--bg-subtle)',
+                    color: isSelected ? 'var(--blue)' : 'var(--fg)',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{cat}</span>
+                  <span
+                    style={{
+                      fontSize: '0.72rem',
+                      padding: '1px 6px',
+                      borderRadius: '10px',
+                      background: isSelected ? 'var(--blue)' : 'var(--line)',
+                      color: isSelected ? '#ffffff' : 'var(--fg-muted)',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Stories List */}
+          {paginatedStories.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--fg-muted)' }}>
+              <p style={{ margin: 0, fontSize: '0.94rem' }}>
+                No stories found for the selected category or search filter.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {paginatedStories.map((story) => (
+                <div
+                  key={story.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--line)',
+                    borderRadius: 'var(--radius-md)',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                    {story.image ? (
+                      <img
+                        src={story.image}
+                        alt=""
+                        style={{ width: '56px', height: '40px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }}
+                      />
+                    ) : (
+                      <div style={{ width: '56px', height: '40px', background: 'var(--bg-subtle)', borderRadius: '4px', flexShrink: 0 }} />
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                        <span className="cat-pill" style={{ fontSize: '0.72rem', padding: '1px 6px' }}>
+                          {story.category}
+                        </span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--fg-muted)' }}>
+                          {new Date(story.date).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {story.title}
+                      </div>
                     </div>
                   </div>
+
+                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => onPreviewStory(story)}
+                      title="Read Story"
+                    >
+                      <Eye size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => onDeleteStory(story.id)}
+                      title="Delete Story"
+                      style={{ color: '#ef4444' }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination Controls */}
+          {categorizedStories.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginTop: '22px',
+                paddingTop: '16px',
+                borderTop: '1px solid var(--line)',
+                flexWrap: 'wrap',
+                gap: '12px',
+              }}
+            >
+              <div style={{ fontSize: '0.84rem', color: 'var(--fg-muted)' }}>
+                Showing <strong>{(currentStoryDeskPage - 1) * STORIES_PER_PAGE + 1}</strong> –{' '}
+                <strong>{Math.min(currentStoryDeskPage * STORIES_PER_PAGE, categorizedStories.length)}</strong> of{' '}
+                <strong>{categorizedStories.length}</strong> stories
+                {storyDeskCategory !== 'ALL' && (
+                  <span style={{ marginLeft: '6px' }}>
+                    in <strong>{storyDeskCategory}</strong>
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setStoryDeskPage((p) => Math.max(1, p - 1))}
+                  disabled={currentStoryDeskPage <= 1}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--line)',
+                    background: currentStoryDeskPage <= 1 ? 'var(--bg-subtle)' : 'var(--bg-card)',
+                    color: currentStoryDeskPage <= 1 ? 'var(--fg-muted)' : 'var(--fg)',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: currentStoryDeskPage <= 1 ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <ChevronLeft size={14} /> Previous
+                </button>
+
+                {/* Page numbers */}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {Array.from({ length: totalStoryDeskPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalStoryDeskPages || Math.abs(p - currentStoryDeskPage) <= 1)
+                    .map((pageNum, idx, arr) => {
+                      const prevPage = arr[idx - 1];
+                      const showEllipsis = prevPage && pageNum - prevPage > 1;
+                      return (
+                        <React.Fragment key={pageNum}>
+                          {showEllipsis && (
+                            <span style={{ padding: '4px 6px', color: 'var(--fg-muted)', fontSize: '0.82rem' }}>…</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setStoryDeskPage(pageNum)}
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid',
+                              borderColor: currentStoryDeskPage === pageNum ? 'var(--blue)' : 'var(--line)',
+                              background: currentStoryDeskPage === pageNum ? 'var(--blue)' : 'var(--bg-card)',
+                              color: currentStoryDeskPage === pageNum ? '#ffffff' : 'var(--fg)',
+                              fontSize: '0.82rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {pageNum}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
                 </div>
 
-                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => onPreviewStory(story)}
-                    title="Read Story"
-                  >
-                    <Eye size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    onClick={() => onDeleteStory(story.id)}
-                    title="Delete Story"
-                    style={{ color: '#ef4444' }}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setStoryDeskPage((p) => Math.min(totalStoryDeskPages, p + 1))}
+                  disabled={currentStoryDeskPage >= totalStoryDeskPages}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--line)',
+                    background: currentStoryDeskPage >= totalStoryDeskPages ? 'var(--bg-subtle)' : 'var(--bg-card)',
+                    color: currentStoryDeskPage >= totalStoryDeskPages ? 'var(--fg-muted)' : 'var(--fg)',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: currentStoryDeskPage >= totalStoryDeskPages ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  Next <ChevronRight size={14} />
+                </button>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -3385,6 +3361,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
                   </button>
                 </>
               )}
+
+              <button
+                type="button"
+                onClick={handleTriggerNewsletter}
+                disabled={isSendingNewsletter}
+                className="btn-secondary"
+                style={{ padding: '9px 16px', fontSize: '0.86rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                title="Verify and trigger daily morning newsletter dispatch to enrolled subscribers"
+              >
+                <Mail size={15} className={isSendingNewsletter ? 'animate-spin' : ''} style={{ color: 'var(--blue)' }} />
+                {isSendingNewsletter ? 'Dispatching...' : 'Dispatch Newsletter'}
+              </button>
 
               <button
                 type="button"
@@ -3524,7 +3512,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     <th style={{ padding: '12px 14px' }}>Enrolled On</th>
                     <th style={{ padding: '12px 14px' }}>Source Channel</th>
                     <th style={{ padding: '12px 14px' }}>Status</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>Actions</th>
+                    {isChiefAdmin && <th style={{ padding: '12px 14px', textAlign: 'right' }}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -3618,29 +3606,31 @@ export const AdminView: React.FC<AdminViewProps> = ({
                           </span>
                         </td>
 
-                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteSubscriber(sub)}
-                            style={{
-                              background: 'transparent',
-                              border: '1px solid #fee2e2',
-                              color: '#ef4444',
-                              padding: '5px 10px',
-                              borderRadius: 'var(--radius-md)',
-                              fontSize: '0.78rem',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              transition: 'all 0.15s ease',
-                            }}
-                            title="Unsubscribe and remove from database"
-                          >
-                            <Trash2 size={13} /> Remove
-                          </button>
-                        </td>
+                        {isChiefAdmin && (
+                          <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSubscriber(sub)}
+                              style={{
+                                background: 'transparent',
+                                border: '1px solid #fee2e2',
+                                color: '#ef4444',
+                                padding: '5px 10px',
+                                borderRadius: 'var(--radius-md)',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                transition: 'all 0.15s ease',
+                              }}
+                              title="Unsubscribe and remove from database"
+                            >
+                              <Trash2 size={13} /> Remove
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

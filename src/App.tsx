@@ -30,7 +30,7 @@ import {
   isSignInWithEmailLink,
   signInWithEmailLink,
 } from './firebase';
-import { collection, getDocs, limit, query, orderBy } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, query, orderBy } from 'firebase/firestore';
 import {
   getBookmarks,
   toggleBookmark,
@@ -192,44 +192,72 @@ export const App: React.FC = () => {
     return allStories.find((s) => s.id === activeStoryId) || null;
   }, [allStories, activeStoryId]);
 
-  // Sync state from window.location.hash
+  // Resolve route from hash, pathname, or search query params
   const handleHashChange = useCallback(() => {
-    const rawHash = decodeURIComponent(window.location.hash.slice(1)).trim();
+    let rawRoute = '';
 
-    if (rawHash.startsWith('story-')) {
-      const id = rawHash.replace('story-', '');
+    // 1. Prefer hash if present
+    if (window.location.hash) {
+      rawRoute = decodeURIComponent(window.location.hash.replace(/^#[/]?/, '')).trim();
+    } else {
+      // 2. Check query params (e.g. ?p=about or ?view=about)
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        const pParam = searchParams.get('p') || searchParams.get('view') || searchParams.get('page');
+        if (pParam) {
+          rawRoute = pParam.replace(/^\/+/, '');
+        } else {
+          // 3. Fallback to pathname (e.g. /about, /admin, /community, /Viralhoods/about)
+          const pathname = window.location.pathname;
+          const segments = pathname.split('/').filter(Boolean);
+          if (segments.length > 0 && segments[0].toLowerCase() === 'viralhoods') {
+            rawRoute = segments.slice(1).join('/');
+          } else {
+            rawRoute = segments.join('/');
+          }
+        }
+      } catch {
+        /* fallback */
+      }
+    }
+
+    rawRoute = rawRoute.replace(/^\/+|\/+$/g, '').trim();
+
+    // Story routes: story-xyz or story/xyz
+    if (rawRoute.startsWith('story-') || rawRoute.startsWith('story/')) {
+      const id = rawRoute.startsWith('story-') ? rawRoute.replace('story-', '') : rawRoute.replace('story/', '');
       setActiveStoryId(id);
       setView('story');
       return;
     }
 
-    if (rawHash.toLowerCase() === 'about') {
+    if (rawRoute.toLowerCase() === 'about') {
       setView('about');
       return;
     }
 
-    if (rawHash.toLowerCase() === 'admin') {
+    if (rawRoute.toLowerCase() === 'admin') {
       setView('admin');
       return;
     }
 
-    if (rawHash.toLowerCase() === 'community') {
+    if (rawRoute.toLowerCase() === 'community') {
       setView('community');
       return;
     }
 
-    if (rawHash.toLowerCase().startsWith('u/')) {
-      setActiveProfileUsername(rawHash.slice(2));
+    if (rawRoute.toLowerCase().startsWith('u/')) {
+      setActiveProfileUsername(rawRoute.slice(2));
       setView('profile');
       return;
     }
 
     // Check for Entertainment and Entertainment subpages
-    if (rawHash.toLowerCase().startsWith('entertainment')) {
+    if (rawRoute.toLowerCase().startsWith('entertainment')) {
       setView('feed');
       setShowOnlyBookmarks(false);
       setCurrentCategory('Entertainment');
-      const parts = rawHash.split('/');
+      const parts = rawRoute.split('/');
       if (parts[1]) {
         const sub = parts[1].toLowerCase();
         if (['videos', 'music', 'movies', 'novels', 'news'].includes(sub)) {
@@ -241,15 +269,22 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Saved Bookmarks
+    if (rawRoute.toLowerCase() === 'saved') {
+      setView('feed');
+      setShowOnlyBookmarks(true);
+      return;
+    }
+
     // Otherwise it's feed view
     setView('feed');
     setShowOnlyBookmarks(false);
 
-    if (!rawHash || rawHash.toLowerCase() === 'all') {
+    if (!rawRoute || rawRoute.toLowerCase() === 'all') {
       setCurrentCategory('All');
     } else {
       const match = CATEGORIES.find(
-        (c) => c.toLowerCase() === rawHash.toLowerCase()
+        (c) => c.toLowerCase() === rawRoute.toLowerCase()
       );
       if (match) {
         setCurrentCategory(match);
@@ -262,10 +297,30 @@ export const App: React.FC = () => {
   useEffect(() => {
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('popstate', handleHashChange);
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('popstate', handleHashChange);
     };
   }, [handleHashChange]);
+
+  // Direct Firestore lookup if a story URL is opened directly and not in memory
+  useEffect(() => {
+    if (view === 'story' && activeStoryId && !currentActiveStory) {
+      let isMounted = true;
+      getDoc(doc(db, 'stories', activeStoryId))
+        .then((snap) => {
+          if (isMounted && snap.exists()) {
+            const fsStory = sanitizeNewsItem(snap.data() as NewsItem);
+            setCustomStories((prev) => (prev.some((s) => s.id === fsStory.id) ? prev : [fsStory, ...prev]));
+          }
+        })
+        .catch((e) => console.warn('Direct story lookup note:', e));
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [view, activeStoryId, currentActiveStory]);
 
   // Track each page visit in real-time for comprehensive Admin analytics
   useEffect(() => {
@@ -564,11 +619,20 @@ export const App: React.FC = () => {
 
       {view === 'story' && !currentActiveStory && (
         <main className="w prose" style={{ margin: '60px auto', textAlign: 'center' }}>
-          <h2>Story Not Found</h2>
-          <p>The requested story could not be located or has been archived.</p>
-          <button type="button" className="btn-primary" onClick={handleNavigateHome} style={{ maxWidth: '200px' }}>
-            Return to Feed
-          </button>
+          {isLoading ? (
+            <div style={{ padding: '60px 20px' }}>
+              <div style={{ width: '32px', height: '32px', border: '3px solid var(--line)', borderTopColor: 'var(--blue)', borderRadius: '50%', animation: 'vh-spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+              <p style={{ color: 'var(--fg-muted)', fontWeight: 600 }}>Loading article...</p>
+            </div>
+          ) : (
+            <>
+              <h2>Story Not Found</h2>
+              <p>The requested story could not be located or has been archived.</p>
+              <button type="button" className="btn-primary" onClick={handleNavigateHome} style={{ maxWidth: '200px' }}>
+                Return to Feed
+              </button>
+            </>
+          )}
         </main>
       )}
 
