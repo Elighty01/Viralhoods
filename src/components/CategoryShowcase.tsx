@@ -118,8 +118,8 @@ export const CategoryShowcase: React.FC<CategoryShowcaseProps> = ({ items, onSel
           </span>
 
           <button
-            type="button"
-            className="btn-outline"
+            type=\"button\"
+            className=\"btn-outline\"
             onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
             disabled={page === totalPages}
             style={{ opacity: page === totalPages ? 0.5 : 1 }}
