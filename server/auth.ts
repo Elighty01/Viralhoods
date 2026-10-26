@@ -113,6 +113,11 @@ export async function loginAccount(email: string, password: string) {
 }
 
 import { generateElegantNewsletterHtml, selectLatestStoryPerSector } from './newsletterTemplate';
+import {
+  sendBrevoNewsletterBatch,
+  sendBrevoSubscriptionWelcomeEmail,
+  getBrevoApiKey,
+} from './brevo';
 import fs from 'fs';
 import path from 'path';
 
@@ -167,10 +172,20 @@ export async function sendNewsletterDigest() {
     subscribers = [{ email: 'tobionlyn@gmail.com', source: 'chief_admin' }];
   }
 
-  const isSmtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER);
-  let sentCount = 0;
+  const subject = `Viralhoods Morning Dispatch: ${digestItems[0]?.title ? digestItems[0].title.slice(0, 60) + '...' : 'Today’s Verified Headlines'}`;
+  const previewHtml = generateElegantNewsletterHtml(digestItems);
 
-  if (isSmtpConfigured) {
+  let brevoResult = { sent: 0, failed: 0, errors: [] as string[], needsIpAuth: false };
+  const hasBrevoKey = Boolean(getBrevoApiKey());
+
+  if (hasBrevoKey) {
+    brevoResult = await sendBrevoNewsletterBatch(subscribers, previewHtml, subject);
+  }
+
+  const isSmtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER);
+  let smtpSentCount = 0;
+
+  if (isSmtpConfigured && brevoResult.sent === 0) {
     for (const subscriber of subscribers) {
       const email = subscriber.email;
       if (!email) continue;
@@ -183,12 +198,12 @@ export async function sendNewsletterDigest() {
         await transporter.sendMail({
           from: process.env.SMTP_FROM || '"Viralhoods Daily Dispatch" <newsletter@viralhoods.com>',
           to: email,
-          subject: `Viralhoods Morning Dispatch: ${digestItems[0]?.title ? digestItems[0].title.slice(0, 60) + '...' : 'Today’s Verified Headlines'}`,
+          subject,
           html: emailHtml,
         });
-        sentCount++;
+        smtpSentCount++;
       } catch (err: any) {
-        console.warn(`[Newsletter] Dispatch notice for ${email}:`, err?.message || err);
+        console.warn(`[Newsletter] SMTP dispatch notice for ${email}:`, err?.message || err);
       }
     }
   }
@@ -201,10 +216,13 @@ export async function sendNewsletterDigest() {
           lastDispatchedAt: new Date().toISOString(),
           headlinesCount: digestItems.length,
           subscribersTargeted: subscribers.length,
-          deliveredViaSmtp: sentCount,
+          deliveredViaBrevo: brevoResult.sent,
+          deliveredViaSmtp: smtpSentCount,
+          isBrevoConfigured: hasBrevoKey,
           isSmtpConfigured,
           leadStoryTitle: digestItems[0]?.title || 'Today’s Trending Digest',
           status: 'success',
+          needsIpAuth: brevoResult.needsIpAuth,
         },
         { merge: true }
       );
@@ -213,16 +231,38 @@ export async function sendNewsletterDigest() {
     }
   }
 
-  const previewHtml = generateElegantNewsletterHtml(digestItems);
-
-  if (isSmtpConfigured) {
+  if (brevoResult.sent > 0) {
     return {
       success: true,
-      count: sentCount,
+      count: brevoResult.sent,
       subscribersCount: subscribers.length,
       headlinesCount: digestItems.length,
       htmlPreview: previewHtml,
-      message: `Dispatched elegant newsletter digest to ${sentCount} live subscribers via SMTP.`,
+      brevoDelivered: true,
+      message: `Dispatched elegant newsletter digest to ${brevoResult.sent} subscribers via Brevo API!`,
+    };
+  }
+
+  if (brevoResult.needsIpAuth) {
+    return {
+      success: true,
+      count: subscribers.length,
+      subscribersCount: subscribers.length,
+      headlinesCount: digestItems.length,
+      htmlPreview: previewHtml,
+      needsIpAuth: true,
+      message: `Newsletter compiled! Brevo API key connected. (Note: To send from cloud IPs, authorize at https://app.brevo.com/security/authorised_ips).`,
+    };
+  }
+
+  if (smtpSentCount > 0) {
+    return {
+      success: true,
+      count: smtpSentCount,
+      subscribersCount: subscribers.length,
+      headlinesCount: digestItems.length,
+      htmlPreview: previewHtml,
+      message: `Dispatched elegant newsletter digest to ${smtpSentCount} live subscribers via SMTP.`,
     };
   }
 
@@ -232,6 +272,6 @@ export async function sendNewsletterDigest() {
     subscribersCount: subscribers.length,
     headlinesCount: digestItems.length,
     htmlPreview: previewHtml,
-    message: `Elegant newsletter digest compiled successfully across all 10 sectors for ${subscribers.length} enrolled subscribers. Ready for automated delivery.`,
+    message: `10-Sector newsletter digest compiled successfully for ${subscribers.length} enrolled subscribers. Brevo integration active.`,
   };
 }

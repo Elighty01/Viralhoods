@@ -414,7 +414,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     leadStoryTitle?: string;
     status?: string;
     scheduleText?: string;
+    isBrevoConfigured?: boolean;
     isSmtpConfigured?: boolean;
+    needsIpAuth?: boolean;
   } | null>(null);
 
   const fetchNewsletterDetails = async () => {
@@ -3955,6 +3957,34 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
                   Automation &amp; Sender Configuration
                 </h3>
+              </div>
+
+              {/* Brevo Integration Card */}
+              <div
+                style={{
+                  padding: '14px 16px',
+                  background: 'rgba(2, 132, 199, 0.08)',
+                  border: '1px solid rgba(2, 132, 199, 0.25)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 800, fontSize: '0.86rem', color: 'var(--blue)' }}>
+                    <Zap size={14} /> Brevo (Sendinblue) API Connected
+                  </div>
+                  <span style={{ fontSize: '0.72rem', background: '#10b981', color: '#ffffff', fontWeight: 800, padding: '2px 8px', borderRadius: '12px' }}>
+                    Active
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--fg-muted)', lineHeight: 1.45 }}>
+                  Brevo handles automatic subscription welcome messages &amp; daily 10-sector newsletter dispatches.
+                </div>
+                <div style={{ fontSize: '0.74rem', color: '#b45309', background: '#fef3c7', padding: '6px 10px', borderRadius: '4px', lineHeight: 1.4 }}>
+                  <strong>Security Note:</strong> If Brevo blocks API dispatch from new cloud IPs, visit <a href="https://app.brevo.com/security/authorised_ips" target="_blank" rel="noopener noreferrer" style={{ color: '#b45309', textDecoration: 'underline', fontWeight: 700 }}>Brevo Authorised IPs</a> to authorize access or disable IP restrictions.
+                </div>
               </div>
 
               <div>

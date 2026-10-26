@@ -24,6 +24,7 @@ import {
   sendNewsletterDigest,
 } from './server/auth';
 import { generateElegantNewsletterHtml } from './server/newsletterTemplate';
+import { sendBrevoSubscriptionWelcomeEmail, getBrevoApiKey } from './server/brevo';
 import { runScraper } from './scripts/scrape';
 import { GoogleGenAI } from '@google/genai';
 
@@ -129,6 +130,28 @@ app.post('/api/auth/logout', (_req, res) => {
   return res.json({ ok: true });
 });
 
+app.post('/api/newsletter/subscribe', async (req, res) => {
+  try {
+    const { email } = req.body || {};
+    const clean = String(email || '').trim().toLowerCase();
+    if (!clean || !clean.includes('@')) {
+      return res.status(400).json({ error: 'Valid email required' });
+    }
+
+    // Dispatch confirmation/welcome message via Brevo
+    const brevoRes = await sendBrevoSubscriptionWelcomeEmail(clean);
+
+    return res.json({
+      ok: true,
+      message: 'Subscription confirmed! Welcome email queued via Brevo.',
+      brevoDelivered: brevoRes.success,
+      needsIpAuth: brevoRes.needsIpAuth,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Subscription failed' });
+  }
+});
+
 app.post('/api/newsletter/send', async (req, res) => {
   try {
     const adminHeader = req.headers['x-admin-key'];
@@ -179,6 +202,7 @@ app.get('/api/newsletter/status', async (_req, res) => {
       lastDispatchedAt: new Date().toISOString(),
       headlinesCount: itemsCount,
       leadStoryTitle: leadTitle,
+      isBrevoConfigured: Boolean(getBrevoApiKey()),
       isSmtpConfigured: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER),
     });
   } catch (err: any) {

@@ -102,6 +102,17 @@ export const addSubscriber = async (
     console.error('Storage error', e);
   }
 
+  // 3. Dispatch subscription confirmation message via Brevo backend
+  try {
+    fetch('/api/newsletter/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: clean, source }),
+    }).catch(() => {});
+  } catch {
+    // non-fatal
+  }
+
   return true;
 };
 
