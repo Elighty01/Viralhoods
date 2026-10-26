@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { NewsItem, CATEGORIES } from '../types';
 import {
   Globe,
@@ -52,6 +52,16 @@ export const CategoryShowcase: React.FC<CategoryShowcaseProps> = ({ items, onSel
     return map;
   }, [items]);
 
+  const PAGE_SIZE = 5;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(CATEGORIES.length / PAGE_SIZE));
+
+  useEffect(() => {
+    setPage((current) => Math.min(Math.max(current, 1), totalPages));
+  }, [totalPages]);
+
+  const visibleCategories = CATEGORIES.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   return (
     <section className="category-showcase" aria-label="Browse by sector">
       <div className="category-showcase-head">
@@ -60,9 +70,9 @@ export const CategoryShowcase: React.FC<CategoryShowcaseProps> = ({ items, onSel
       </div>
 
       <div className="category-showcase-grid">
-        {CATEGORIES.map((cat, i) => {
+        {visibleCategories.map((cat, i) => {
           const Icon = SECTOR_ICONS[cat] || Globe;
-          const hue = i * 36;
+          const hue = ((page - 1) * PAGE_SIZE + i) * 36;
           const count = counts.get(cat) || 0;
           return (
             <button
@@ -81,6 +91,43 @@ export const CategoryShowcase: React.FC<CategoryShowcaseProps> = ({ items, onSel
           );
         })}
       </div>
+
+      {CATEGORIES.length > PAGE_SIZE && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '10px',
+            flexWrap: 'wrap',
+            marginTop: '18px',
+          }}
+        >
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={page === 1}
+            style={{ opacity: page === 1 ? 0.5 : 1 }}
+          >
+            Prev
+          </button>
+
+          <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)', fontWeight: 700 }}>
+            Page {page} of {totalPages}
+          </span>
+
+          <button
+            type="button"
+            className="btn-outline"
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+            disabled={page === totalPages}
+            style={{ opacity: page === totalPages ? 0.5 : 1 }}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </section>
   );
 };
