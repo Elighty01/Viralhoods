@@ -1,6 +1,8 @@
 /**
- * Elegant Publication-Grade Email Newsletter Theme for Viralhoods.
+ * Elegant Publication-Grade Email Newsletter Theme for Viralhoods (Server-Side).
  * Renders bulletproof HTML compatible with Gmail, Apple Mail, Outlook, and webmail clients.
+ *
+ * Enforces: Contains ONLY the single latest news from each of the 10 sectors.
  */
 
 export interface NewsletterStory {
@@ -15,7 +17,20 @@ export interface NewsletterStory {
   subSector?: string;
 }
 
-const CATEGORY_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
+export const SECTOR_LIST = [
+  'World',
+  'Politics',
+  'Finance',
+  'Health',
+  'Entertainment',
+  'Research',
+  'Science',
+  'AI',
+  'Tech',
+  'Sports',
+] as const;
+
+export const CATEGORY_COLORS: Record<string, { bg: string; text: string; icon: string }> = {
   World: { bg: '#e0f2fe', text: '#0369a1', icon: '🌍' },
   Politics: { bg: '#fef3c7', text: '#b45309', icon: '🏛️' },
   Finance: { bg: '#dcfce7', text: '#15803d', icon: '📈' },
@@ -28,26 +43,60 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; icon: string }
   Sports: { bg: '#fae8ff', text: '#a21caf', icon: '⚽' },
 };
 
+/**
+ * Filters the stories collection so the newsletter contains ONLY the single latest news
+ * item from each of the 10 monitored sectors.
+ */
+export function selectLatestStoryPerSector(stories: NewsletterStory[]): NewsletterStory[] {
+  const result: NewsletterStory[] = [];
+
+  for (const sector of SECTOR_LIST) {
+    const matching = stories
+      .filter((s) => {
+        if (!s.category) return false;
+        const c = s.category.trim().toLowerCase();
+        const target = sector.toLowerCase();
+        if (c === target) return true;
+        if (target === 'ai' && (c === 'ai' || c === 'artificial intelligence' || c === 'ai & tech')) return true;
+        if (target === 'tech' && (c === 'tech' || c === 'technology')) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+    if (matching.length > 0) {
+      result.push(matching[0]);
+    }
+  }
+
+  return result;
+}
+
 export function generateElegantNewsletterHtml(
-  stories: NewsletterStory[],
+  rawStories: NewsletterStory[],
   options?: {
     siteUrl?: string;
     editionDate?: string;
     recipientEmail?: string;
   }
 ): string {
+  // Ensure the newsletter contains ONLY the latest news from each of the 10 sectors
+  const sectorStories = selectLatestStoryPerSector(rawStories);
+  const stories = sectorStories.length > 0 ? sectorStories : rawStories.slice(0, 10);
+
   const siteUrl = (options?.siteUrl || process.env.SITE_URL || 'https://viralhoods.com').replace(/\/$/, '');
-  const todayStr = options?.editionDate || new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(new Date());
+  const todayStr =
+    options?.editionDate ||
+    new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(new Date());
 
   const leadStory = stories[0] || null;
-  const secondaryStories = stories.slice(1, 12);
+  const secondaryStories = stories.slice(1);
 
-  // Group secondary stories by category or display top headlines
+  // Group secondary stories by category
   const headlinesHtml = secondaryStories
     .map((story) => {
       const catStyle = CATEGORY_COLORS[story.category] || { bg: '#e2e8f0', text: '#334155', icon: '📰' };
@@ -55,14 +104,20 @@ export function generateElegantNewsletterHtml(
 
       return `
         <tr style="border-bottom: 1px solid #edf2f7;">
-          <td style="padding: 16px 0; vertical-align: top;">
+          <td style="padding: 18px 0; vertical-align: top;">
             <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
               <tr>
                 <td style="padding-bottom: 6px;">
                   <span style="display: inline-block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: ${catStyle.bg}; color: ${catStyle.text}; padding: 3px 8px; border-radius: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                    ${catStyle.icon} ${story.category}
+                    ${catStyle.icon} LATEST IN ${story.category.toUpperCase()}
                   </span>
-                  ${story.date ? `<span style="font-size: 12px; color: #94a3b8; margin-left: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${new Date(story.date).toLocaleDateString()}</span>` : ''}
+                  ${
+                    story.date
+                      ? `<span style="font-size: 12px; color: #94a3b8; margin-left: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">${new Date(
+                          story.date
+                        ).toLocaleDateString()}</span>`
+                      : ''
+                  }
                 </td>
               </tr>
               <tr>
@@ -78,7 +133,7 @@ export function generateElegantNewsletterHtml(
                     ${story.summary || ''}
                   </p>
                   <a href="${storyUrl}" style="color: #0284c7; font-size: 13px; font-weight: 700; text-decoration: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                    Read article &rarr;
+                    Read full report &rarr;
                   </a>
                 </td>
               </tr>
@@ -89,8 +144,7 @@ export function generateElegantNewsletterHtml(
     })
     .join('');
 
-  return `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -131,25 +185,27 @@ export function generateElegantNewsletterHtml(
 
               <!-- Subtitle & Date Ticker -->
               <p style="margin: 0 0 14px; font-size: 13px; color: #94a3b8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; letter-spacing: 0.04em;">
-                GLOBAL EDITORIAL NEWS SYNTHESIS
+                10-SECTOR EXECUTIVE BRIEFING &bull; ONE LATEST STORY PER SECTOR
               </p>
 
               <div style="display: inline-block; padding: 6px 14px; background-color: rgba(255, 255, 255, 0.07); border-radius: 6px; font-size: 12px; color: #cbd5e1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                📅 <strong>${todayStr}</strong> &bull; All 10 Sectors Synthesized
+                📅 <strong>${todayStr}</strong> &bull; ${stories.length} Sectors Represented
               </div>
             </td>
           </tr>
 
           <!-- Intro Welcome Banner -->
           <tr>
-            <td style="padding: 24px 32px 16px; background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 20px 32px 16px; background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0;">
               <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #334155; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                Good morning. Here is today's curated briefing of verified developments, breakthrough research, and viral stories across World, Politics, Finance, Tech, AI, Health, and Science.
+                Good morning. Here is today's curated briefing featuring <strong>only the single latest verified development</strong> from each of our 10 monitored sectors: World, Politics, Finance, Health, Entertainment, Research, Science, AI, Tech, and Sports.
               </p>
             </td>
           </tr>
 
-          ${leadStory ? `
+          ${
+            leadStory
+              ? `
           <!-- LEAD FEATURED STORY SECTION -->
           <tr>
             <td style="padding: 28px 32px 20px;">
@@ -162,7 +218,9 @@ export function generateElegantNewsletterHtml(
                   </td>
                 </tr>
 
-                ${leadStory.image ? `
+                ${
+                  leadStory.image
+                    ? `
                 <tr>
                   <td style="padding-bottom: 16px;">
                     <a href="${leadStory.id ? `${siteUrl}/#story-${leadStory.id}` : siteUrl}" style="text-decoration: none;">
@@ -170,7 +228,9 @@ export function generateElegantNewsletterHtml(
                     </a>
                   </td>
                 </tr>
-                ` : ''}
+                `
+                    : ''
+                }
 
                 <tr>
                   <td style="padding-bottom: 10px;">
@@ -204,19 +264,21 @@ export function generateElegantNewsletterHtml(
               </table>
             </td>
           </tr>
-          ` : ''}
+          `
+              : ''
+          }
 
-          <!-- SECTION DIVIDER: ALL COMPILED NEWS HEADINGS -->
+          <!-- SECTION DIVIDER: ALL SECTORS LATEST NEWS -->
           <tr>
             <td style="padding: 16px 32px 10px; background-color: #ffffff;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
                 <tr>
                   <td style="border-top: 2px solid #0f172a; padding-top: 14px;">
                     <h2 style="margin: 0 0 4px; font-size: 18px; font-weight: 800; color: #0f172a; font-family: 'Georgia', serif; letter-spacing: 0.02em;">
-                      Today's Compiled Sector Headings
+                      Latest Story From Each Sector
                     </h2>
                     <p style="margin: 0; font-size: 13px; color: #64748b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                      Synthesized from verified multi-mirror RSS wires across 10 sectors.
+                      One verified breakthrough per category, updated continuously.
                     </p>
                   </td>
                 </tr>
@@ -224,7 +286,7 @@ export function generateElegantNewsletterHtml(
             </td>
           </tr>
 
-          <!-- HEADLINES LIST -->
+          <!-- HEADLINES LIST (EXACTLY 1 STORY PER SECTOR) -->
           <tr>
             <td style="padding: 0 32px 24px;">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
@@ -264,7 +326,7 @@ export function generateElegantNewsletterHtml(
               <p style="margin: 0; color: #64748b; font-size: 11px;">
                 You are receiving this morning briefing because you enrolled at <a href="${siteUrl}" style="color: #38bdf8; text-decoration: none;">Viralhoods.com</a>.<br>
                 ${options?.recipientEmail ? `Sent to: ${options.recipientEmail} &bull; ` : ''}
-                <a href="${siteUrl}/#subscribers" style="color: #38bdf8; text-decoration: none;">Subscriber Portal</a> &bull;
+                <a href="${siteUrl}/#all" style="color: #38bdf8; text-decoration: none;">Home Feed</a> &bull;
                 <a href="${siteUrl}/#about" style="color: #38bdf8; text-decoration: none;">About</a>
               </p>
             </td>
@@ -275,6 +337,5 @@ export function generateElegantNewsletterHtml(
     </tr>
   </table>
 </body>
-</html>
-  `;
+</html>`;
 }

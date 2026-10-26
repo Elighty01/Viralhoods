@@ -11,6 +11,7 @@ import {
   Sparkles,
   Film,
   Users,
+  Mail,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -23,6 +24,7 @@ interface HeaderProps {
   onNavigateCommunity: () => void;
   onOpenAiChat: () => void;
   onOpenAiStudio: () => void;
+  onOpenNewsletter?: () => void;
   currentUser: User | null;
   onOpenAuth: () => void;
   onSignOut: () => void;
@@ -43,6 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigateCommunity,
   onOpenAiChat,
   onOpenAiStudio,
+  onOpenNewsletter,
   currentUser,
   onOpenAuth,
   onSignOut,
@@ -65,14 +68,38 @@ export const Header: React.FC<HeaderProps> = ({
     <>
       {/* Top Edition Ticker */}
       <div className="top-ticker">
-        <div className="w ticker-inner">
-          <div className="ticker-left">
+        <div className="w ticker-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+          <div className="ticker-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>{todayFormatted}</span>
             <span className="ticker-bullet">●</span>
             <span style={{ fontWeight: 600 }}>Global Edition</span>
             <span className="ticker-bullet">●</span>
             <span style={{ color: 'var(--fg-muted)' }}>10 Sectors Monitored in Real-Time</span>
           </div>
+
+          {onOpenNewsletter && (
+            <button
+              type="button"
+              onClick={onOpenNewsletter}
+              style={{
+                background: 'rgba(217, 119, 6, 0.14)',
+                border: '1px solid rgba(217, 119, 6, 0.4)',
+                color: '#d97706',
+                padding: '3px 10px',
+                borderRadius: '12px',
+                fontSize: '0.74rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                transition: 'all 0.15s ease',
+              }}
+              title="Open Today's 10-Sector Executive Newsletter"
+            >
+              <Mail size={12} /> Today's 10-Sector Newsletter Dispatch
+            </button>
+          )}
         </div>
       </div>
 
@@ -83,6 +110,27 @@ export const Header: React.FC<HeaderProps> = ({
             <BrandLogo size="md" showTagline={true} onClick={onNavigateHome} />
 
             <div className="header-actions">
+              {/* Daily Newsletter Button */}
+              {onOpenNewsletter && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={onOpenNewsletter}
+                  style={{
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    borderColor: 'rgba(217, 119, 6, 0.4)',
+                    background: 'rgba(217, 119, 6, 0.08)',
+                    color: 'var(--fg)',
+                  }}
+                  title="Read Today's 10-Sector Newsletter Digest"
+                >
+                  <Mail size={14} style={{ color: '#d97706' }} /> Newsletter
+                </button>
+              )}
+
               {/* AI Chatbot Assistant Button */}
               <button
                 type="button"

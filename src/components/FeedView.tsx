@@ -44,6 +44,7 @@ interface FeedViewProps {
   onSelectEntertainmentSubpage?: (subpage: EntertainmentSubpage) => void;
   onNavigateCommunity: () => void;
   onSelectCategory: (category: string) => void;
+  onOpenNewsletter?: () => void;
 }
 
 export type SearchEngineMode = 'viralhoods' | 'google' | 'google-news';
@@ -66,6 +67,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   onSelectEntertainmentSubpage,
   onNavigateCommunity,
   onSelectCategory,
+  onOpenNewsletter,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTab, setSearchTab] = useState<'all' | 'local' | 'google'>('all');
@@ -1052,7 +1054,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                       )}
 
                       {/* Newsletter In-Feed Banner */}
-                      <NewsletterBanner onSubscribe={onSubscribe} />
+                      <NewsletterBanner onSubscribe={onSubscribe} onOpenNewsletter={onOpenNewsletter} />
 
                       {/* Subsequent Stories Grid — paginated for large sector catalogs */}
                       {gridItems.length > 0 && (

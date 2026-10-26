@@ -112,7 +112,7 @@ export async function loginAccount(email: string, password: string) {
   };
 }
 
-import { generateElegantNewsletterHtml } from './newsletterTemplate';
+import { generateElegantNewsletterHtml, selectLatestStoryPerSector } from './newsletterTemplate';
 import fs from 'fs';
 import path from 'path';
 
@@ -122,7 +122,7 @@ export async function sendNewsletterDigest() {
   // 1. Fetch stories from Firestore
   if (db) {
     try {
-      const storiesSnap = await db.collection('stories').limit(25).get();
+      const storiesSnap = await db.collection('stories').limit(60).get();
       if (!storiesSnap.empty) {
         items = storiesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       }
@@ -138,13 +138,17 @@ export async function sendNewsletterDigest() {
       if (fs.existsSync(filePath)) {
         const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         if (Array.isArray(raw?.items)) {
-          items = raw.items.slice(0, 25);
+          items = raw.items;
         }
       }
     } catch (_fErr) {
       // fallback
     }
   }
+
+  // Ensure newsletter strictly contains only the single latest story from each of the 10 sectors
+  const sectorStories = selectLatestStoryPerSector(items);
+  const digestItems = sectorStories.length > 0 ? sectorStories : items.slice(0, 10);
 
   let subscribers: any[] = [];
   if (db) {
@@ -171,7 +175,7 @@ export async function sendNewsletterDigest() {
       const email = subscriber.email;
       if (!email) continue;
 
-      const emailHtml = generateElegantNewsletterHtml(items, {
+      const emailHtml = generateElegantNewsletterHtml(digestItems, {
         recipientEmail: email,
       });
 
@@ -179,7 +183,7 @@ export async function sendNewsletterDigest() {
         await transporter.sendMail({
           from: process.env.SMTP_FROM || '"Viralhoods Daily Dispatch" <newsletter@viralhoods.com>',
           to: email,
-          subject: `Viralhoods Morning Dispatch: ${items[0]?.title ? items[0].title.slice(0, 60) + '...' : 'Today’s Verified Headlines'}`,
+          subject: `Viralhoods Morning Dispatch: ${digestItems[0]?.title ? digestItems[0].title.slice(0, 60) + '...' : 'Today’s Verified Headlines'}`,
           html: emailHtml,
         });
         sentCount++;
@@ -195,11 +199,11 @@ export async function sendNewsletterDigest() {
       await db.collection('system').doc('newsletter_status').set(
         {
           lastDispatchedAt: new Date().toISOString(),
-          headlinesCount: items.length,
+          headlinesCount: digestItems.length,
           subscribersTargeted: subscribers.length,
           deliveredViaSmtp: sentCount,
           isSmtpConfigured,
-          leadStoryTitle: items[0]?.title || 'Today’s Trending Digest',
+          leadStoryTitle: digestItems[0]?.title || 'Today’s Trending Digest',
           status: 'success',
         },
         { merge: true }
@@ -209,14 +213,14 @@ export async function sendNewsletterDigest() {
     }
   }
 
-  const previewHtml = generateElegantNewsletterHtml(items);
+  const previewHtml = generateElegantNewsletterHtml(digestItems);
 
   if (isSmtpConfigured) {
     return {
       success: true,
       count: sentCount,
       subscribersCount: subscribers.length,
-      headlinesCount: items.length,
+      headlinesCount: digestItems.length,
       htmlPreview: previewHtml,
       message: `Dispatched elegant newsletter digest to ${sentCount} live subscribers via SMTP.`,
     };
@@ -226,7 +230,7 @@ export async function sendNewsletterDigest() {
     success: true,
     count: subscribers.length,
     subscribersCount: subscribers.length,
-    headlinesCount: items.length,
+    headlinesCount: digestItems.length,
     htmlPreview: previewHtml,
     message: `Elegant newsletter digest compiled successfully across all 10 sectors for ${subscribers.length} enrolled subscribers. Ready for automated delivery.`,
   };

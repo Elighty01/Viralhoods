@@ -523,8 +523,8 @@ export async function scrapeTrendingNewsAndSyncFirestore() {
 /** Helper: Compiles latest news headings and records daily newsletter digest for all subscribers */
 async function compileAndRecordDailyNewsletter(): Promise<{ count: number; headlines: number }> {
   try {
-    const storiesSnap = await db.collection('stories').orderBy('scrapedAt', 'desc').limit(25).get();
-    const headlines = storiesSnap.docs.map((d) => {
+    const storiesSnap = await db.collection('stories').orderBy('scrapedAt', 'desc').limit(80).get();
+    const rawStories = storiesSnap.docs.map((d) => {
       const data = d.data();
       return {
         id: d.id,
@@ -532,8 +532,20 @@ async function compileAndRecordDailyNewsletter(): Promise<{ count: number; headl
         category: data.category || 'General',
         summary: data.summary || '',
         url: data.url || '',
+        date: data.date || data.scrapedAt || '',
       };
     });
+
+    // Enforce strictly 1 single latest story per sector across all 10 monitored sectors
+    const headlines: typeof rawStories = [];
+    for (const cat of CATEGORIES) {
+      const matching = rawStories.find((s) => s.category.toLowerCase() === cat.toLowerCase());
+      if (matching) {
+        headlines.push(matching);
+      }
+    }
+
+    const finalHeadlines = headlines.length > 0 ? headlines : rawStories.slice(0, 10);
 
     const subSnap = await db.collection('subscribers').get();
     const subscriberEmails = subSnap.docs
@@ -543,9 +555,9 @@ async function compileAndRecordDailyNewsletter(): Promise<{ count: number; headl
     await db.collection('system').doc('newsletter_status').set(
       {
         lastDispatchedAt: new Date().toISOString(),
-        headlinesCount: headlines.length,
+        headlinesCount: finalHeadlines.length,
         subscribersTargeted: subscriberEmails.length,
-        leadStoryTitle: headlines[0]?.title || 'Daily Morning Digest',
+        leadStoryTitle: finalHeadlines[0]?.title || 'Daily Morning Digest',
         status: 'success',
         schedule: '0 0 * * * (Daily at 12:00 AM UTC)',
         automated: true,
@@ -553,8 +565,8 @@ async function compileAndRecordDailyNewsletter(): Promise<{ count: number; headl
       { merge: true }
     );
 
-    logger.info(`Daily newsletter automated compile finished: ${headlines.length} headlines prepared for ${subscriberEmails.length} subscribers.`);
-    return { count: subscriberEmails.length, headlines: headlines.length };
+    logger.info(`Daily newsletter automated compile finished: ${finalHeadlines.length} sector headlines prepared for ${subscriberEmails.length} subscribers.`);
+    return { count: subscriberEmails.length, headlines: finalHeadlines.length };
   } catch (err: any) {
     logger.warn('compileAndRecordDailyNewsletter error:', err?.message || err);
     return { count: 0, headlines: 0 };

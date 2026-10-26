@@ -19,6 +19,7 @@ const ProfilePage = lazy(() => import('./components/ProfilePage').then((m) => ({
 const CreatePostModal = lazy(() => import('./components/CreatePostModal').then((m) => ({ default: m.CreatePostModal })));
 const UsernameSetupModal = lazy(() => import('./components/UsernameSetupModal').then((m) => ({ default: m.UsernameSetupModal })));
 import { NewsData, NewsItem, CATEGORIES, User, CommunityPost, categoryMatches } from './types';
+import { NewsletterModal } from './components/NewsletterModal';
 import { LogOut, X } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
 import {
@@ -72,6 +73,9 @@ export const App: React.FC = () => {
 
   // Sign out confirmation modal state
   const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState<boolean>(false);
+
+  // Daily Newsletter Publication Modal state
+  const [isNewsletterOpen, setIsNewsletterOpen] = useState<boolean>(false);
 
   // Community (blog/board) state
   const [activeProfileUsername, setActiveProfileUsername] = useState<string>('');
@@ -228,6 +232,11 @@ export const App: React.FC = () => {
       const id = rawRoute.startsWith('story-') ? rawRoute.replace('story-', '') : rawRoute.replace('story/', '');
       setActiveStoryId(id);
       setView('story');
+      return;
+    }
+
+    if (rawRoute.toLowerCase() === 'newsletter' || rawRoute.toLowerCase() === 'dispatch') {
+      setIsNewsletterOpen(true);
       return;
     }
 
@@ -584,6 +593,7 @@ export const App: React.FC = () => {
         onNavigateCommunity={() => handleNavigateView('community')}
         onOpenAiChat={handleOpenAiAssistant}
         onOpenAiStudio={handleOpenAiStudio}
+        onOpenNewsletter={() => setIsNewsletterOpen(true)}
         currentUser={currentUser}
         onOpenAuth={() => handleOpenAuthWithMessage()}
         onSignOut={handleRequestSignOut}
@@ -613,6 +623,7 @@ export const App: React.FC = () => {
           onSelectEntertainmentSubpage={handleSelectEntertainmentSubpage}
           onNavigateCommunity={() => handleNavigateView('community')}
           onSelectCategory={handleSelectCategory}
+          onOpenNewsletter={() => setIsNewsletterOpen(true)}
         />
       )}
 
@@ -847,6 +858,26 @@ export const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Daily Newsletter Reader Modal */}
+      <NewsletterModal
+        isOpen={isNewsletterOpen}
+        onClose={() => {
+          setIsNewsletterOpen(false);
+          if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('newsletter')) {
+            window.history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        }}
+        stories={allStories}
+        onOpenStory={(id) => {
+          setActiveStoryId(id);
+          setView('story');
+          if (typeof window !== 'undefined') {
+            window.location.hash = `#story-${id}`;
+          }
+        }}
+        onSubscribe={handleSubscribe}
+      />
     </>
   );
 };
