@@ -1,3 +1,8 @@
+The error is caused by malformed JSX quoting in the `Next` button block — the escaped quotes were left in the file as `type=\"button\"` instead of proper JSX syntax.
+
+Use this corrected version of `src/components/CategoryShowcase.tsx`:
+
+```tsx name=src/components/CategoryShowcase.tsx
 import React, { useMemo, useState, useEffect } from 'react';
 import { NewsItem, CATEGORIES } from '../types';
 import {
@@ -118,8 +123,8 @@ export const CategoryShowcase: React.FC<CategoryShowcaseProps> = ({ items, onSel
           </span>
 
           <button
-            type=\"button\"
-            className=\"btn-outline\"
+            type="button"
+            className="btn-outline"
             onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
             disabled={page === totalPages}
             style={{ opacity: page === totalPages ? 0.5 : 1 }}
@@ -131,3 +136,6 @@ export const CategoryShowcase: React.FC<CategoryShowcaseProps> = ({ items, onSel
     </section>
   );
 };
+```
+
+The key fix is: use normal JSX attribute quotes, not escaped quotes.
