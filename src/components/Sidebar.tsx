@@ -1,8 +1,20 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowUpRight, Layers, TrendingUp, Users } from 'lucide-react';
+import { CATEGORIES, type NewsItem } from '../types';
+
+interface SidebarProps {
+  items: NewsItem[];
+  onOpenStory: (item: NewsItem) => void;
+  onSelectCategory: (category: string) => void;
+  onNavigateCommunity: () => void;
+}
+
 const SectorWidget: React.FC<{ items: NewsItem[]; onSelectCategory: (category: string) => void }> = ({ items, onSelectCategory }) => {
   const counts = useMemo(() => {
     const map = new Map<string, number>();
     for (const item of items) {
-      map.set(item.category, (map.get(item.category) || 0) + 1);
+      const category = item.category || 'World';
+      map.set(category, (map.get(category) || 0) + 1);
     }
     return map;
   }, [items]);
@@ -63,3 +75,60 @@ const SectorWidget: React.FC<{ items: NewsItem[]; onSelectCategory: (category: s
     </div>
   );
 };
+
+export const Sidebar: React.FC<SidebarProps> = ({ items, onOpenStory, onSelectCategory, onNavigateCommunity }) => {
+  const trendingStories = useMemo(() => {
+    return [...items]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 4);
+  }, [items]);
+
+  return (
+    <aside className="side-col">
+      <div className="widget-box">
+        <h3 className="widget-title">
+          <TrendingUp size={16} /> Trending Now
+        </h3>
+        <ul className="trend-list">
+          {trendingStories.map((item) => (
+            <li key={item.id}>
+              <button type="button" className="trend-list-item" onClick={() => onOpenStory(item)}>
+                <span className="trend-list-text">{item.title}</span>
+                <span className="trend-list-meta">{item.category}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="widget-box">
+        <h3 className="widget-title">
+          <Users size={16} /> From the Community
+        </h3>
+        <button
+          type="button"
+          className="community-link"
+          onClick={onNavigateCommunity}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            color: 'var(--fg)',
+            cursor: 'pointer',
+          }}
+        >
+          <span>Join the discussion</span>
+          <ArrowUpRight size={14} />
+        </button>
+      </div>
+
+      <SectorWidget items={items} onSelectCategory={onSelectCategory} />
+    </aside>
+  );
+};
+
+export default Sidebar;
