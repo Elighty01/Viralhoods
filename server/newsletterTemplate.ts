@@ -316,12 +316,8 @@ export function generateElegantNewsletterHtml(
           <!-- ELEGANT EDITORIAL FOOTER -->
           <tr>
             <td style="background-color: #090d16; padding: 28px 32px; text-align: center; color: #94a3b8; font-size: 12px; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-              <p style="margin: 0 0 8px; font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.08em;">
+              <p style="margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #ffffff; letter-spacing: 0.08em;">
                 VIRALHOODS
-              </p>
-              <p style="margin: 0 0 12px; color: #94a3b8;">
-                Autonomous News Aggregation &amp; Paraphrasing Intelligence Platform.<br>
-                Automated daily dispatch triggered following the 12:00 AM UTC scraping routine.
               </p>
               <p style="margin: 0; color: #64748b; font-size: 11px;">
                 You are receiving this morning briefing because you enrolled at <a href="${siteUrl}" style="color: #38bdf8; text-decoration: none;">Viralhoods.com</a>.<br>
