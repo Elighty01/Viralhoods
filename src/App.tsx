@@ -18,7 +18,7 @@ const CommunityHub = lazy(() => import('./components/CommunityHub').then((m) => 
 const ProfilePage = lazy(() => import('./components/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 const CreatePostModal = lazy(() => import('./components/CreatePostModal').then((m) => ({ default: m.CreatePostModal })));
 const UsernameSetupModal = lazy(() => import('./components/UsernameSetupModal').then((m) => ({ default: m.UsernameSetupModal })));
-import { NewsData, NewsItem, CATEGORIES, User, CommunityPost } from './types';
+import { NewsData, NewsItem, CATEGORIES, User, CommunityPost, categoryMatches } from './types';
 import { LogOut, X } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
 import {
@@ -280,16 +280,20 @@ export const App: React.FC = () => {
     setView('feed');
     setShowOnlyBookmarks(false);
 
-    if (!rawRoute || rawRoute.toLowerCase() === 'all') {
+    const decoded = decodeURIComponent(rawRoute || '').trim();
+    if (!decoded || decoded.toLowerCase() === 'all') {
       setCurrentCategory('All');
     } else {
       const match = CATEGORIES.find(
-        (c) => c.toLowerCase() === rawRoute.toLowerCase()
+        (c) => c.toLowerCase() === decoded.toLowerCase()
       );
       if (match) {
         setCurrentCategory(match);
       } else {
-        setCurrentCategory('All');
+        const aliasMatch = CATEGORIES.find(
+          (c) => categoryMatches(decoded, c)
+        );
+        setCurrentCategory(aliasMatch || 'All');
       }
     }
   }, []);
@@ -464,14 +468,18 @@ export const App: React.FC = () => {
 
   const handleSelectCategory = (cat: string) => {
     setShowOnlyBookmarks(false);
+    setView('feed');
+    setCurrentCategory(cat);
     if (cat === 'Entertainment') {
       setEntertainmentSubpage('news');
     }
-    window.location.hash = cat;
+    window.location.hash = cat === 'All' ? 'All' : cat;
   };
 
   const handleNavigateHome = () => {
     setShowOnlyBookmarks(false);
+    setView('feed');
+    setCurrentCategory('All');
     window.location.hash = 'All';
   };
 

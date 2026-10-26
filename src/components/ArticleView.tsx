@@ -6,6 +6,7 @@ import { formatAgo } from './NewsCard';
 import { trackPageVisit } from '../utils/analytics';
 import {
   ArrowLeft,
+  ArrowRight,
   Bookmark,
   Volume2,
   VolumeX,
@@ -627,23 +628,21 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
     [lastStory, allStories, loadedStories.length]
   );
 
-  // Continuous scroll: append the next recommended story once the reader
-  // nears the bottom of the last one currently loaded.
-  useEffect(() => {
-    const node = sentinelRef.current;
-    if (!node || !nextStory) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          trackedIdsRef.current.add(nextStory.id);
-          setLoadedStories((prev) => (prev.some((s) => s.id === nextStory.id) ? prev : [...prev, nextStory]));
-        }
-      },
-      { rootMargin: '1000px 0px' }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [nextStory]);
+  // Explicit Story Continuation Handlers (Next Button)
+  const handleLoadNextStory = (targetStory: NewsItem) => {
+    trackedIdsRef.current.add(targetStory.id);
+    window.location.hash = `story-${targetStory.id}`;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleAppendStory = (targetStory: NewsItem) => {
+    trackedIdsRef.current.add(targetStory.id);
+    setLoadedStories((prev) => (prev.some((s) => s.id === targetStory.id) ? prev : [...prev, targetStory]));
+    setTimeout(() => {
+      const el = blockNodesRef.current.get(targetStory.id);
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+  };
 
   // Scrollspy: whichever loaded story currently sits in the vertical
   // center of the viewport becomes the "active" one.
@@ -751,8 +750,153 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
         ))}
 
         {nextStory ? (
-          <div ref={sentinelRef} style={{ padding: '30px 0 50px', textAlign: 'center', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
-            Loading the next story...
+          <div
+            className="story-continuation-card"
+            style={{
+              margin: '40px 0 30px',
+              padding: '28px 32px',
+              background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--bg-subtle) 100%)',
+              border: '1px solid var(--line-strong)',
+              borderRadius: 'var(--radius-lg)',
+              boxShadow: 'var(--card-shadow)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 12px',
+                  borderRadius: '20px',
+                  background: 'var(--blue-tint)',
+                  color: 'var(--blue)',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                }}
+              >
+                <Sparkles size={13} style={{ color: 'var(--sun)' }} />
+                Story Continuation &bull; Up Next in {nextStory.category}
+              </div>
+              <span style={{ fontSize: '0.82rem', color: 'var(--fg-muted)', display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                <Clock size={13} style={{ color: 'var(--blue)' }} />
+                {calculateStoryReadingMetrics(nextStory).readTimeLabel}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              {nextStory.image && (
+                <img
+                  src={nextStory.image}
+                  alt={nextStory.title}
+                  style={{
+                    width: '140px',
+                    height: '90px',
+                    objectFit: 'cover',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--line)',
+                    flexShrink: 0,
+                  }}
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              )}
+              <div style={{ flex: 1, minWidth: '240px' }}>
+                <h3
+                  style={{
+                    fontSize: '1.25rem',
+                    fontWeight: 800,
+                    margin: '0 0 8px',
+                    color: 'var(--fg)',
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {nextStory.title}
+                </h3>
+                <p
+                  style={{
+                    fontSize: '0.9rem',
+                    color: 'var(--fg-muted)',
+                    margin: 0,
+                    lineHeight: 1.5,
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {nextStory.summary}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                gap: '12px',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                marginTop: '6px',
+                paddingTop: '18px',
+                borderTop: '1px solid var(--line)',
+              }}
+            >
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handleLoadNextStory(nextStory)}
+                style={{
+                  padding: '12px 24px',
+                  fontSize: '0.94rem',
+                  fontWeight: 800,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  boxShadow: '0 4px 12px rgba(2, 132, 199, 0.25)',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>Continue to Next Story</span>
+                <ArrowRight size={16} />
+              </button>
+
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => handleAppendStory(nextStory)}
+                style={{
+                  padding: '12px 18px',
+                  fontSize: '0.88rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+                title="Append and read directly below this article"
+              >
+                <BookOpen size={14} /> Read Below
+              </button>
+
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={onBack}
+                style={{
+                  padding: '12px 18px',
+                  fontSize: '0.88rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <ArrowLeft size={14} /> Back to Stories
+              </button>
+            </div>
           </div>
         ) : (
           <div

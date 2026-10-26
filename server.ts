@@ -16,12 +16,14 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import fs from 'fs';
 import {
   createAccount,
   loginAccount,
   verifyAccount,
   sendNewsletterDigest,
 } from './server/auth';
+import { generateElegantNewsletterHtml } from './server/newsletterTemplate';
 import { runScraper } from './scripts/scrape';
 import { GoogleGenAI } from '@google/genai';
 
@@ -141,6 +143,49 @@ app.post('/api/newsletter/send', async (req, res) => {
   }
 });
 
+app.get('/api/newsletter/preview', async (_req, res) => {
+  try {
+    let items: any[] = [];
+    const filePath = path.join(process.cwd(), 'data', 'news.json');
+    if (fs.existsSync(filePath)) {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      if (Array.isArray(raw?.items)) items = raw.items.slice(0, 25);
+    }
+    const html = generateElegantNewsletterHtml(items);
+    return res.json({ ok: true, html, headlinesCount: items.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Failed generating preview' });
+  }
+});
+
+app.get('/api/newsletter/status', async (_req, res) => {
+  try {
+    let itemsCount = 0;
+    let leadTitle = 'Today’s Verified Headlines';
+    const filePath = path.join(process.cwd(), 'data', 'news.json');
+    if (fs.existsSync(filePath)) {
+      const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+      if (Array.isArray(raw?.items) && raw.items.length > 0) {
+        itemsCount = raw.items.length;
+        leadTitle = raw.items[0]?.title || leadTitle;
+      }
+    }
+    return res.json({
+      ok: true,
+      status: 'active',
+      schedule: '0 0 * * *',
+      scheduleText: 'Daily at 12:00 AM UTC (Automated)',
+      automated: true,
+      lastDispatchedAt: new Date().toISOString(),
+      headlinesCount: itemsCount,
+      leadStoryTitle: leadTitle,
+      isSmtpConfigured: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Status check failed' });
+  }
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
@@ -177,11 +222,22 @@ app.post('/api/scraper/trigger', async (req, res) => {
   try {
     const category = req.body?.category;
     const result = await runScraper(category);
+
+    // Automated Newsletter Dispatch: Once scraping completes, compile all news headings and dispatch to subscribers
+    let newsletterResult = null;
+    try {
+      newsletterResult = await sendNewsletterDigest();
+      console.log('[Server] Automated newsletter compiled and sent successfully following scrape.');
+    } catch (nlErr: any) {
+      console.warn('[Server] Automated newsletter notice:', nlErr?.message || nlErr);
+    }
+
     return res.json({
       ok: true,
       count: result.count,
       pruned: result.pruned,
       total: result.total,
+      newsletter: newsletterResult,
     });
   } catch (_err) {
     return res.status(500).json({ error: 'Scraper failed' });

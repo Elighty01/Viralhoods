@@ -572,6 +572,15 @@ export async function runScraper(targetCategory?: string) {
       `catalog now ${finalItems.length} stories across 10 sectors + 4 Entertainment sub-pages.`
   );
 
+  // Automated Newsletter Compilation: compile and record/send newsletter for all subscribers
+  try {
+    const { sendNewsletterDigest } = await import('../server/auth');
+    await sendNewsletterDigest();
+    console.log('Automated newsletter digest compiled for all subscribers.');
+  } catch (_nlErr) {
+    // Non-blocking in environments without server runtime
+  }
+
   return {
     count: scrapedNewItems.length,
     pruned: removedCount,

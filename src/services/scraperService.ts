@@ -33,9 +33,11 @@ export const RSS_FEEDS: Record<Category, string[]> = {
     'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en',
   ],
-  'AI & Tech': [
+  AI: [
     'https://news.google.com/rss/search?q=Artificial+Intelligence+machine+learning&hl=en-US&gl=US&ceid=US:en',
     'https://phys.org/rss-feed/technology-news/computer-sciences/',
+  ],
+  Tech: [
     'https://feeds.bbci.co.uk/news/technology/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en',
   ],
@@ -68,7 +70,8 @@ export const DEFAULT_CATEGORY_IMAGES: Record<Category, string> = {
   Entertainment: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=900&q=80',
   Research: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=900&q=80',
   Science: 'https://images.unsplash.com/photo-1507668077129-56e32842fceb?auto=format&fit=crop&w=900&q=80',
-  'AI & Tech': 'https://images.unsplash.com/photo-1677442136019-21780efad99a?auto=format&fit=crop&w=900&q=80',
+  AI: 'https://images.unsplash.com/photo-1677442136019-21780efad99a?auto=format&fit=crop&w=900&q=80',
+  Tech: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=80',
   Sports: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=80',
 };
 

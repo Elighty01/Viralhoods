@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { NewsItem, User, UnifiedSearchResponse } from '../types';
+import { NewsItem, User, UnifiedSearchResponse, categoryMatches, CATEGORIES } from '../types';
 import { NewsCard, formatAgo } from './NewsCard';
 import { NewsletterBanner } from './NewsletterBanner';
 import { Sidebar } from './Sidebar';
@@ -78,21 +78,88 @@ export const FeedView: React.FC<FeedViewProps> = ({
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
   // Internal filter - searches titles, summaries, and categories
-  const filteredItems = items.filter((item) => {
-    if (showOnlyBookmarks && !bookmarks.includes(item.id)) {
-      return false;
+  // When viewing the Home page ('All'), it features top news from all 10 sections sequentially.
+  const filteredItems = useMemo(() => {
+    if (showOnlyBookmarks) {
+      return items.filter((item) => {
+        if (!bookmarks.includes(item.id)) return false;
+        if (!normalizedQuery) return true;
+        return (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(normalizedQuery);
+      });
     }
-    const matchesCategory =
-      showOnlyBookmarks || !normalizedQuery || category === 'All' || item.category === category;
-    const matchesQuery =
-      !normalizedQuery ||
-      (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(normalizedQuery);
-    return matchesCategory && matchesQuery;
-  });
 
-  // Pagination for sector views and the home feed. Keeps browsing manageable
-  // even when each sector accumulates a large archive of stories.
-  const PAGE_SIZE = 12;
+    if (category !== 'All') {
+      return items.filter((item) => {
+        const matchesCategory =
+          categoryMatches(item.category, category) ||
+          (Boolean(item.category) && item.category.trim().toLowerCase() === category.trim().toLowerCase());
+        const matchesQuery =
+          !normalizedQuery ||
+          (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(normalizedQuery);
+        return matchesCategory && matchesQuery;
+      });
+    }
+
+    // Home Page ('All'):
+    // If a search query is active, return search matches
+    if (normalizedQuery) {
+      return items.filter((item) =>
+        (item.title + ' ' + (item.summary || '') + ' ' + (item.category || '')).toLowerCase().includes(normalizedQuery)
+      );
+    }
+
+    // Sequentially feature top news across all 10 sections:
+    // Partition items into buckets for each category in CATEGORIES order
+    const sectorBuckets = new Map<string, NewsItem[]>();
+    for (const cat of CATEGORIES) {
+      sectorBuckets.set(cat, []);
+    }
+    const otherBucket: NewsItem[] = [];
+
+    for (const item of items) {
+      const matchedCat = CATEGORIES.find((c) => categoryMatches(item.category, c));
+      if (matchedCat) {
+        sectorBuckets.get(matchedCat)!.push(item);
+      } else {
+        otherBucket.push(item);
+      }
+    }
+
+    // Sort each sector bucket by date (freshest / top news first)
+    for (const [, list] of sectorBuckets.entries()) {
+      list.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    }
+
+    // Interleave sequentially across all 10 sections:
+    // Round 1: Top story from World, Politics, Finance, Health, Entertainment, Research, Science, AI, Tech, Sports
+    // Round 2: Second story from World, Politics, Finance, Health, Entertainment, Research, Science, AI, Tech, Sports
+    // etc.
+    const sequential: NewsItem[] = [];
+    let hasMore = true;
+    let rank = 0;
+
+    while (hasMore) {
+      hasMore = false;
+      for (const cat of CATEGORIES) {
+        const bucket = sectorBuckets.get(cat);
+        if (bucket && rank < bucket.length) {
+          sequential.push(bucket[rank]);
+          hasMore = true;
+        }
+      }
+      rank++;
+    }
+
+    if (otherBucket.length > 0) {
+      otherBucket.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      sequential.push(...otherBucket);
+    }
+
+    return sequential;
+  }, [items, category, showOnlyBookmarks, bookmarks, normalizedQuery]);
+
+  // Pagination: 10 items on Home page so every page covers all 10 sections in sequence; 12 on sector pages
+  const PAGE_SIZE = category === 'All' ? 10 : 12;
   const [currentPage, setCurrentPage] = useState(1);
   useEffect(() => {
     setCurrentPage(1);
@@ -897,6 +964,83 @@ export const FeedView: React.FC<FeedViewProps> = ({
                 ) : (
                   <div className="layout-grid">
                     <div className="posts-main">
+                      {/* Section Context Header */}
+                      {!searchQuery.trim() && !showOnlyBookmarks && category === 'All' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '18px',
+                            flexWrap: 'wrap',
+                            gap: '10px',
+                            paddingBottom: '12px',
+                            borderBottom: '2px solid var(--line)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <span
+                              style={{
+                                fontSize: '0.74rem',
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.06em',
+                                background: 'var(--blue-tint)',
+                                color: 'var(--blue)',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                              }}
+                            >
+                              Top News From All 10 Sectors
+                            </span>
+                            <span style={{ fontSize: '0.94rem', fontWeight: 800, color: 'var(--fg)' }}>
+                              Sequentially Curated Edition
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--fg-muted)' }}>
+                            Top verified report per sector &bull; Page {currentPage} of {totalPages}
+                          </span>
+                        </div>
+                      )}
+
+                      {!searchQuery.trim() && !showOnlyBookmarks && category !== 'All' && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: '18px',
+                            flexWrap: 'wrap',
+                            gap: '10px',
+                            paddingBottom: '12px',
+                            borderBottom: '2px solid var(--line)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span
+                              style={{
+                                fontSize: '0.74rem',
+                                fontWeight: 800,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.06em',
+                                background: 'var(--blue-tint)',
+                                color: 'var(--blue)',
+                                padding: '3px 8px',
+                                borderRadius: '4px',
+                              }}
+                            >
+                              Sector Desk
+                            </span>
+                            <span style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--fg)' }}>
+                              {category} Reports
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.82rem', color: 'var(--fg-muted)' }}>
+                            {filteredItems.length} stories &bull; Page {currentPage} of {totalPages}
+                          </span>
+                        </div>
+                      )}
+
                       {leadItem && (
                         <NewsCard
                           item={leadItem}

@@ -148,15 +148,12 @@ main.w {
   gap: 16px;
 }
 
-/* Header */
+/* Header — flows with the rest of the page */
 header {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 20;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .top {
@@ -1171,11 +1168,8 @@ footer .w {
   flex-direction: column;
   gap: 20px;
   min-width: 0;
-  /* Approximate height of the sticky masthead (ticker scrolls away; the
-     logo row + category-nav row stay pinned) — adjust if the header's own
-     height changes. */
   position: sticky;
-  top: 118px;
+  top: 24px;
 }
 
 @media (max-width: 960px) {

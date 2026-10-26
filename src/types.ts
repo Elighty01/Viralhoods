@@ -94,7 +94,8 @@ export const CATEGORIES = [
   'Entertainment',
   'Research',
   'Science',
-  'AI & Tech',
+  'AI',
+  'Tech',
   'Sports',
 ] as const;
 
@@ -103,11 +104,11 @@ export type Category = (typeof CATEGORIES)[number];
 export const HOME_CATEGORY = 'Home';
 
 export const CATEGORY_ALIASES: Record<string, string> = {
-  ai: 'AI & Tech',
-  tech: 'AI & Tech',
-  'ai & tech': 'AI & Tech',
-  'ai-tech': 'AI & Tech',
-  'ai-tech-news': 'AI & Tech',
+  ai: 'AI',
+  tech: 'Tech',
+  'ai & tech': 'AI',
+  'ai-tech': 'AI',
+  'ai-tech-news': 'AI',
 };
 
 export const normalizeCategoryName = (value?: string | null): string => {
@@ -118,20 +119,22 @@ export const normalizeCategoryName = (value?: string | null): string => {
   const alias = CATEGORY_ALIASES[cleaned.toLowerCase()];
   if (alias) return alias;
   const normalized = cleaned.toLowerCase().replace(/[^a-z0-9&\s-]/g, '').replace(/\s+/g, ' ');
-  if (normalized === 'ai' || normalized === 'tech' || normalized === 'ai tech' || normalized === 'ai-tech') {
-    return 'AI & Tech';
-  }
+  if (normalized === 'ai') return 'AI';
+  if (normalized === 'tech') return 'Tech';
+  if (normalized === 'ai tech' || normalized === 'ai-tech' || normalized === 'ai & tech') return 'AI';
   return cleaned;
 };
 
 export const categoryMatches = (value: string | null | undefined, target: string): boolean => {
-  const normalizedValue = normalizeCategoryName(value);
-  const normalizedTarget = normalizeCategoryName(target);
-  if (normalizedValue === normalizedTarget) return true;
-  if (normalizedTarget === 'AI & Tech') {
-    return ['AI & Tech', 'AI', 'Tech'].includes(normalizedValue);
-  }
-  return false;
+  if (!value || !target) return false;
+  if (target === 'All' || target === HOME_CATEGORY) return true;
+  const v = value.trim().toLowerCase();
+  const t = target.trim().toLowerCase();
+  if (v === t) return true;
+  if (t === 'ai & tech') return v === 'ai' || v === 'tech' || v === 'ai & tech';
+  if (t === 'ai' && (v === 'ai' || v === 'ai & tech')) return true;
+  if (t === 'tech' && (v === 'tech' || v === 'ai & tech')) return true;
+  return normalizeCategoryName(value).toLowerCase() === normalizeCategoryName(target).toLowerCase();
 };
 
 // Entertainment Hub sub-pages. Stories tagged with one of these in

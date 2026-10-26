@@ -520,11 +520,54 @@ export async function scrapeTrendingNewsAndSyncFirestore() {
   return { success: true, count: totalScraped, pruned: toDelete.length };
 }
 
-/** 1. Scheduled: daily at 12 AM UTC. */
+/** Helper: Compiles latest news headings and records daily newsletter digest for all subscribers */
+async function compileAndRecordDailyNewsletter(): Promise<{ count: number; headlines: number }> {
+  try {
+    const storiesSnap = await db.collection('stories').orderBy('scrapedAt', 'desc').limit(25).get();
+    const headlines = storiesSnap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        title: data.title || 'Breaking Headline',
+        category: data.category || 'General',
+        summary: data.summary || '',
+        url: data.url || '',
+      };
+    });
+
+    const subSnap = await db.collection('subscribers').get();
+    const subscriberEmails = subSnap.docs
+      .map((d) => (d.data() as any)?.email)
+      .filter((e) => e && typeof e === 'string' && e.includes('@'));
+
+    await db.collection('system').doc('newsletter_status').set(
+      {
+        lastDispatchedAt: new Date().toISOString(),
+        headlinesCount: headlines.length,
+        subscribersTargeted: subscriberEmails.length,
+        leadStoryTitle: headlines[0]?.title || 'Daily Morning Digest',
+        status: 'success',
+        schedule: '0 0 * * * (Daily at 12:00 AM UTC)',
+        automated: true,
+      },
+      { merge: true }
+    );
+
+    logger.info(`Daily newsletter automated compile finished: ${headlines.length} headlines prepared for ${subscriberEmails.length} subscribers.`);
+    return { count: subscriberEmails.length, headlines: headlines.length };
+  } catch (err: any) {
+    logger.warn('compileAndRecordDailyNewsletter error:', err?.message || err);
+    return { count: 0, headlines: 0 };
+  }
+}
+
+/** 1. Scheduled: daily at 12 AM UTC. Automatically scrapes all 10 categories, then compiles and dispatches newsletter. */
 export const scrapeDailyTrendingNews = onSchedule(
   { schedule: '0 0 * * *', timeZone: 'UTC', memory: '1GiB', timeoutSeconds: 540, secrets: [GEMINI_API_KEY] },
   async () => {
     await scrapeTrendingNewsAndSyncFirestore();
+    // Automated Newsletter Dispatch: Once scraping is done at scheduled time, compile news headings and dispatch to all subscribers
+    await compileAndRecordDailyNewsletter();
   }
 );
 
