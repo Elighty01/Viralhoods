@@ -76,6 +76,7 @@ import {
   Mail,
   Send,
   Settings,
+  Home,
 } from 'lucide-react';
 import {
   fetchAnalyticsData,
@@ -1279,76 +1280,51 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   const filteredStories = categorizedStories;
 
-  // Discreet Password Gate (Zero personal email shown!)
+  // Completely inaccessible to general public: if accessed directly without authorization, render standard 404
   if (!isAuthorized) {
-    // Real authorization gate: admin status is a Firebase custom claim,
-    // verified server-side (see firebase.ts `refreshAdminStatus` and
-    // functions/src/index.ts `syncChiefAdminClaim`). There is no password
-    // to type here anymore — sign in with the account that holds the claim.
-    const notSignedIn = !currentUser;
     return (
-      <main className="w admin-container" style={{ padding: '60px 16px' }}>
+      <main className="w not-found-container" style={{ padding: '80px 16px 120px', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
         <div
           style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--line-strong)',
-            borderRadius: 'var(--radius-lg)',
-            padding: '40px 32px',
-            textAlign: 'center',
-            maxWidth: '440px',
-            margin: '0 auto',
-            boxShadow: 'var(--card-shadow)',
+            fontSize: '6.5rem',
+            fontWeight: 900,
+            lineHeight: 1,
+            letterSpacing: '-0.04em',
+            color: 'var(--blue)',
+            marginBottom: '16px',
+            fontFamily: 'var(--font-heading, "Bricolage Grotesque", sans-serif)',
           }}
         >
-          <div
-            style={{
-              width: '56px',
-              height: '56px',
-              borderRadius: '50%',
-              background: 'var(--blue-tint)',
-              color: 'var(--blue)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 18px',
+          404
+        </div>
+        <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 12px', color: 'var(--fg)', letterSpacing: '-0.02em' }}>
+          Page Not Found
+        </h1>
+        <p style={{ color: 'var(--fg-muted)', fontSize: '1.05rem', lineHeight: 1.6, margin: '0 0 32px' }}>
+          The page you are looking for doesn't exist, has been removed, or is temporarily unavailable.
+        </p>
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              window.location.hash = '';
             }}
-          >
-            <Lock size={26} />
-          </div>
-
-          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, margin: '0 0 8px' }}>
-            Editorial Access
-          </h1>
-
-          <p style={{ color: 'var(--fg-muted)', fontSize: '0.92rem', lineHeight: 1.5, margin: '0 0 20px' }}>
-            {notSignedIn
-              ? 'Sign in with your administrator account to unlock the Viralhoods management console and website statistics.'
-              : `You're signed in as ${currentUser?.email}, but this account doesn't have administrator access.`}
-          </p>
-
-          <div
-            style={{
-              padding: '10px 12px',
-              background: 'var(--bg-subtle)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--radius-sm)',
-              marginBottom: '20px',
-              fontSize: '0.8rem',
-              color: 'var(--fg-muted)',
-              textAlign: 'left',
-            }}
-          >
-            🔒 <strong>Real server-side security:</strong> Administrator access is a Firebase account claim, checked by Firestore's own security rules — not a password stored in the app.
-          </div>
-
-          <button
-            type="button"
             className="btn-primary"
-            style={{ width: '100%', padding: '11px', fontWeight: 700 }}
-            onClick={onOpenAuth}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 24px',
+              fontWeight: 700,
+              textDecoration: 'none',
+              borderRadius: '999px',
+              fontSize: '0.95rem',
+            }}
           >
-            {notSignedIn ? 'Sign In' : 'Switch Account'}
-          </button>
+            <Home size={18} />
+            Return to Homepage
+          </a>
         </div>
       </main>
     );

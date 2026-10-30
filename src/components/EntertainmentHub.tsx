@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   EntertainmentDownloadItem,
   ENTERTAINMENT_DOWNLOADS,
@@ -217,6 +217,61 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
     if (currentSubpage === 'news') return [];
     return entertainmentStories.filter((story) => story.subSector === currentSubpage);
   }, [entertainmentStories, currentSubpage]);
+
+  // ---------------------------------------------------------------------------
+  // Pagination (matches standard sector desk layout: 12 stories / items per page)
+  // ---------------------------------------------------------------------------
+  const NEWS_PAGE_SIZE = 12;
+  const [newsCurrentPage, setNewsCurrentPage] = useState(1);
+
+  const DOWNLOADS_PAGE_SIZE = 12;
+  const [downloadsCurrentPage, setDownloadsCurrentPage] = useState(1);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setNewsCurrentPage(1);
+  }, [newsTopicFilter, searchQuery, entertainmentStories]);
+
+  useEffect(() => {
+    setDownloadsCurrentPage(1);
+  }, [currentSubpage, selectedGenre, selectedSubtype, searchQuery]);
+
+  const totalNewsPages = Math.max(1, Math.ceil(filteredNewsStories.length / NEWS_PAGE_SIZE));
+  useEffect(() => {
+    setNewsCurrentPage((page) => Math.min(Math.max(page, 1), totalNewsPages));
+  }, [totalNewsPages]);
+
+  const totalDownloadPages = Math.max(1, Math.ceil(filteredDownloads.length / DOWNLOADS_PAGE_SIZE));
+  useEffect(() => {
+    setDownloadsCurrentPage((page) => Math.min(Math.max(page, 1), totalDownloadPages));
+  }, [totalDownloadPages]);
+
+  const getPageWindow = (curr: number, total: number) => {
+    const pages: number[] = [];
+    const maxVisible = 5;
+    let start = Math.max(1, curr - Math.floor(maxVisible / 2));
+    let end = Math.min(total, start + maxVisible - 1);
+
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+
+    for (let page = start; page <= end; page += 1) pages.push(page);
+    return pages;
+  };
+
+  const newsPageWindow = useMemo(() => getPageWindow(newsCurrentPage, totalNewsPages), [newsCurrentPage, totalNewsPages]);
+  const downloadPageWindow = useMemo(() => getPageWindow(downloadsCurrentPage, totalDownloadPages), [downloadsCurrentPage, totalDownloadPages]);
+
+  const paginatedNewsStories = useMemo(() => {
+    const start = (newsCurrentPage - 1) * NEWS_PAGE_SIZE;
+    return filteredNewsStories.slice(start, start + NEWS_PAGE_SIZE);
+  }, [filteredNewsStories, newsCurrentPage]);
+
+  const paginatedDownloads = useMemo(() => {
+    const start = (downloadsCurrentPage - 1) * DOWNLOADS_PAGE_SIZE;
+    return filteredDownloads.slice(start, start + DOWNLOADS_PAGE_SIZE);
+  }, [filteredDownloads, downloadsCurrentPage]);
 
   // Audio preview handler
   const handleTogglePlayAudio = (item: EntertainmentDownloadItem) => {
@@ -584,7 +639,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               <TrendingUp size={18} color="var(--blue)" /> Latest Viral Stories in Entertainment
             </h2>
             <div style={{ fontSize: '0.85rem', color: 'var(--fg-muted)' }}>
-              Showing {filteredNewsStories.length} of {entertainmentStories.length} curated stories
+              {filteredNewsStories.length} stories &bull; Page {newsCurrentPage} of {totalNewsPages}
             </div>
           </div>
 
@@ -632,17 +687,98 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
           </div>
 
           {filteredNewsStories.length > 0 ? (
-            <div className="news-grid">
-              {filteredNewsStories.map((story) => (
-                <NewsCard
-                  key={story.id}
-                  item={story}
-                  isBookmarked={bookmarks.includes(story.id)}
-                  onToggleBookmark={onToggleBookmark}
-                  onOpenStory={onOpenStory}
-                />
-              ))}
-            </div>
+            <>
+              <div className="news-grid">
+                {paginatedNewsStories.map((story) => (
+                  <NewsCard
+                    key={story.id}
+                    item={story}
+                    isBookmarked={bookmarks.includes(story.id)}
+                    onToggleBookmark={onToggleBookmark}
+                    onOpenStory={onOpenStory}
+                  />
+                ))}
+              </div>
+
+              {filteredNewsStories.length > NEWS_PAGE_SIZE && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    margin: '28px 0 8px',
+                    paddingTop: '20px',
+                    borderTop: '1px solid var(--line)',
+                    alignItems: 'center',
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    onClick={() => {
+                      setNewsCurrentPage((page) => Math.max(1, page - 1));
+                      window.scrollTo({ top: 150, behavior: 'smooth' });
+                    }}
+                    disabled={newsCurrentPage === 1}
+                    style={{ opacity: newsCurrentPage === 1 ? 0.5 : 1 }}
+                  >
+                    Prev
+                  </button>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {newsPageWindow.map((page) => (
+                      <button
+                        key={page}
+                        type="button"
+                        onClick={() => {
+                          setNewsCurrentPage(page);
+                          window.scrollTo({ top: 150, behavior: 'smooth' });
+                        }}
+                        style={{
+                          minWidth: '36px',
+                          height: '36px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--line)',
+                          background: newsCurrentPage === page ? 'var(--blue)' : 'var(--bg-card)',
+                          color: newsCurrentPage === page ? '#fff' : 'var(--fg)',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn-outline"
+                    onClick={() => {
+                      setNewsCurrentPage((page) => Math.min(totalNewsPages, page + 1));
+                      window.scrollTo({ top: 150, behavior: 'smooth' });
+                    }}
+                    disabled={newsCurrentPage === totalNewsPages}
+                    style={{ opacity: newsCurrentPage === totalNewsPages ? 0.5 : 1 }}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+
+              {filteredNewsStories.length > NEWS_PAGE_SIZE && (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    color: 'var(--fg-muted)',
+                    fontSize: '0.88rem',
+                    margin: '10px 0 8px',
+                  }}
+                >
+                  Page {newsCurrentPage} of {totalNewsPages} &bull; {filteredNewsStories.length} stories shown
+                </div>
+              )}
+            </>
           ) : (
             <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--fg-muted)' }}>
               No entertainment stories match the selected topic filter.
@@ -1000,7 +1136,7 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               gap: '20px',
             }}
           >
-            {filteredDownloads.map((item) => (
+            {paginatedDownloads.map((item) => (
               <div
                 key={item.id}
                 style={{
@@ -1304,6 +1440,85 @@ export const EntertainmentHub: React.FC<EntertainmentHubProps> = ({
               </div>
             ))}
           </div>
+
+          {filteredDownloads.length > DOWNLOADS_PAGE_SIZE && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                gap: '10px',
+                margin: '28px 0 8px',
+                paddingTop: '20px',
+                borderTop: '1px solid var(--line)',
+                alignItems: 'center',
+              }}
+            >
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => {
+                  setDownloadsCurrentPage((page) => Math.max(1, page - 1));
+                  window.scrollTo({ top: 350, behavior: 'smooth' });
+                }}
+                disabled={downloadsCurrentPage === 1}
+                style={{ opacity: downloadsCurrentPage === 1 ? 0.5 : 1 }}
+              >
+                Prev
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                {downloadPageWindow.map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => {
+                      setDownloadsCurrentPage(page);
+                      window.scrollTo({ top: 350, behavior: 'smooth' });
+                    }}
+                    style={{
+                      minWidth: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--line)',
+                      background: downloadsCurrentPage === page ? 'var(--blue)' : 'var(--bg-card)',
+                      color: downloadsCurrentPage === page ? '#fff' : 'var(--fg)',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => {
+                  setDownloadsCurrentPage((page) => Math.min(totalDownloadPages, page + 1));
+                  window.scrollTo({ top: 350, behavior: 'smooth' });
+                }}
+                disabled={downloadsCurrentPage === totalDownloadPages}
+                style={{ opacity: downloadsCurrentPage === totalDownloadPages ? 0.5 : 1 }}
+              >
+                Next
+              </button>
+            </div>
+          )}
+
+          {filteredDownloads.length > DOWNLOADS_PAGE_SIZE && (
+            <div
+              style={{
+                textAlign: 'center',
+                color: 'var(--fg-muted)',
+                fontSize: '0.88rem',
+                margin: '10px 0 8px',
+              }}
+            >
+              Page {downloadsCurrentPage} of {totalDownloadPages} &bull; {filteredDownloads.length} items shown
+            </div>
+          )}
 
           {filteredDownloads.length === 0 && (
             <div

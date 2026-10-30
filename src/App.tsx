@@ -21,7 +21,7 @@ const UsernameSetupModal = lazy(() => import('./components/UsernameSetupModal').
 const AdContactModal = lazy(() => import('./components/AdContactModal').then((m) => ({ default: m.AdContactModal })));
 import { NewsData, NewsItem, CATEGORIES, User, CommunityPost, categoryMatches } from './types';
 import { NewsletterModal } from './components/NewsletterModal';
-import { LogOut, X } from 'lucide-react';
+import { LogOut, X, Home } from 'lucide-react';
 import { EntertainmentSubpage } from './components/EntertainmentHub';
 import {
   auth,
@@ -62,6 +62,7 @@ export const App: React.FC = () => {
 
   // User auth state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [authPromptMessage, setAuthPromptMessage] = useState<string | undefined>(undefined);
 
@@ -102,39 +103,45 @@ export const App: React.FC = () => {
     // sign-in state. `isAdmin` reflects a real server-verified custom claim
     // (see firebase.ts `refreshAdminStatus`), not a locally-stored flag.
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (fbUser) {
-        let isAdmin = false;
-        let isChiefAdmin = false;
-        let profile = null;
-        try {
-          const res = await Promise.all([
-            refreshAdminStatus(fbUser).catch(() => ({ isAdmin: false, isChiefAdmin: false })),
-            fetchProfileByUid(fbUser.uid).catch(() => null),
-          ]);
-          isAdmin = res[0].isAdmin;
-          isChiefAdmin = res[0].isChiefAdmin;
-          profile = res[1];
-        } catch {
-          // refreshAdminStatus already tries several fallbacks internally —
-          // if all of those failed too, isAdmin/isChiefAdmin stay false.
-        }
+      try {
+        if (fbUser) {
+          let isAdmin = false;
+          let isChiefAdmin = false;
+          let profile = null;
+          try {
+            const res = await Promise.all([
+              refreshAdminStatus(fbUser).catch(() => ({ isAdmin: false, isChiefAdmin: false })),
+              fetchProfileByUid(fbUser.uid).catch(() => null),
+            ]);
+            isAdmin = res[0].isAdmin;
+            isChiefAdmin = res[0].isChiefAdmin;
+            profile = res[1];
+          } catch {
+            // refreshAdminStatus already tries several fallbacks internally —
+            // if all of those failed too, isAdmin/isChiefAdmin stay false.
+          }
 
-        const cleanEmail = (fbUser.email || '').trim().toLowerCase();
-        if (cleanEmail === 'tobionlyn@gmail.com') {
-          isAdmin = true;
-          isChiefAdmin = true;
-        }
+          const cleanEmail = (fbUser.email || '').trim().toLowerCase();
+          if (cleanEmail === 'tobionlyn@gmail.com') {
+            isAdmin = true;
+            isChiefAdmin = true;
+          }
 
-        setCurrentUser({
-          email: fbUser.email || '',
-          name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',
-          isAdmin,
-          isChiefAdmin,
-          uid: fbUser.uid,
-          username: profile?.username || null,
-        });
-      } else {
-        setCurrentUser(null);
+          setCurrentUser({
+            email: fbUser.email || '',
+            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',
+            isAdmin,
+            isChiefAdmin,
+            uid: fbUser.uid,
+            username: profile?.username || null,
+          });
+        } else {
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        console.warn('Auth state resolution note:', err);
+      } finally {
+        setIsAuthLoading(false);
       }
     });
 
@@ -197,6 +204,13 @@ export const App: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
   };
+
+  // Check if current user is an authorized administrator
+  const isUserAdmin = Boolean(
+    currentUser?.isAdmin ||
+    currentUser?.isChiefAdmin ||
+    currentUser?.email?.trim().toLowerCase() === 'tobionlyn@gmail.com'
+  );
 
   // Combine fetched items with user-generated custom stories
   const allStories = useMemo(() => {
@@ -379,19 +393,25 @@ export const App: React.FC = () => {
       pageName = `Story: ${storyTitle}`;
       category = currentActiveStory?.category;
       path = `#story-${activeStoryId}`;
+      document.title = `${storyTitle} - Viralhoods`;
     } else if (view === 'about') {
       pageName = 'About Viralhoods';
       path = '#about';
+      document.title = 'About & Editorial Standards - Viralhoods';
     } else if (view === 'admin') {
-      pageName = 'Admin Editorial Console';
+      pageName = isUserAdmin ? 'Admin Editorial Console' : '404 Page Not Found';
       path = '#admin';
+      document.title = isUserAdmin ? 'Admin Console - Viralhoods' : '404 Not Found - Viralhoods';
     } else if (view === 'community') {
       pageName = 'Community';
       path = '#community';
+      document.title = 'Community Hub - Viralhoods';
     } else if (view === 'profile') {
       pageName = `Profile: @${activeProfileUsername}`;
       path = `#u/${activeProfileUsername}`;
+      document.title = `@${activeProfileUsername} - Viralhoods Community`;
     } else if (view === 'feed') {
+      document.title = 'Viralhoods: trending news from every sector';
       if (showOnlyBookmarks) {
         pageName = 'Saved Bookmarks';
         path = '#saved';
@@ -415,7 +435,7 @@ export const App: React.FC = () => {
       storyTitle,
       category,
     });
-  }, [view, currentCategory, entertainmentSubpage, activeStoryId, showOnlyBookmarks, currentActiveStory, activeProfileUsername]);
+  }, [view, currentCategory, entertainmentSubpage, activeStoryId, showOnlyBookmarks, currentActiveStory, activeProfileUsername, isUserAdmin]);
 
   // Fetch latest data from /data/news.json & Firestore database
   const fetchNews = useCallback(async () => {
@@ -721,18 +741,69 @@ export const App: React.FC = () => {
       )}
 
       {view === 'admin' && (
-        <Suspense fallback={<div style={{ padding: '80px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading admin console...</div>}>
-          <AdminView
-            currentUser={currentUser}
-            onOpenAuth={() => handleOpenAuthWithMessage()}
-            onAuthorizeAdmin={(user) => setCurrentUser(user)}
-            allStories={allStories}
-            onAddStory={handleAddCustomStory}
-            onDeleteStory={handleDeleteStory}
-            onPreviewStory={handleOpenStory}
-            onRefreshData={fetchNews}
-          />
-        </Suspense>
+        isAuthLoading ? (
+          <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div className="vh-preloader-spinner" style={{ width: '32px', height: '32px' }}></div>
+          </div>
+        ) : isUserAdmin ? (
+          <Suspense fallback={<div style={{ padding: '80px 16px', textAlign: 'center', color: 'var(--fg-muted)' }}>Loading admin console...</div>}>
+            <AdminView
+              currentUser={currentUser}
+              onOpenAuth={() => handleOpenAuthWithMessage()}
+              onAuthorizeAdmin={(user) => setCurrentUser(user)}
+              allStories={allStories}
+              onAddStory={handleAddCustomStory}
+              onDeleteStory={handleDeleteStory}
+              onPreviewStory={handleOpenStory}
+              onRefreshData={fetchNews}
+            />
+          </Suspense>
+        ) : (
+          <main className="w not-found-container" style={{ padding: '80px 16px 120px', textAlign: 'center', maxWidth: '600px', margin: '0 auto' }}>
+            <div
+              style={{
+                fontSize: '6.5rem',
+                fontWeight: 900,
+                lineHeight: 1,
+                letterSpacing: '-0.04em',
+                color: 'var(--blue)',
+                marginBottom: '16px',
+                fontFamily: 'var(--font-heading, "Bricolage Grotesque", sans-serif)',
+              }}
+            >
+              404
+            </div>
+            <h1 style={{ fontSize: '2rem', fontWeight: 800, margin: '0 0 12px', color: 'var(--fg)', letterSpacing: '-0.02em' }}>
+              Page Not Found
+            </h1>
+            <p style={{ color: 'var(--fg-muted)', fontSize: '1.05rem', lineHeight: 1.6, margin: '0 0 32px' }}>
+              The page you are looking for doesn't exist, has been removed, or is temporarily unavailable.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleNavigateHome();
+                }}
+                className="btn-primary"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '12px 24px',
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                  borderRadius: '999px',
+                  fontSize: '0.95rem',
+                }}
+              >
+                <Home size={18} />
+                Return to Homepage
+              </a>
+            </div>
+          </main>
+        )
       )}
 
       <Footer currentUser={currentUser} onNavigate={handleNavigateView} onOpenAdContact={() => setIsAdContactOpen(true)} />
