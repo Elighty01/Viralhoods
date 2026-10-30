@@ -12,13 +12,17 @@ service cloud.firestore {
     // in these rules (this file is plaintext and world-readable, same as
     // any other file in the repo).
     function isChiefAdmin() {
-      return signedIn() && request.auth.token.chiefAdmin == true;
+      return signedIn() && (
+        request.auth.token.chiefAdmin == true ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == 'tobionlyn@gmail.com')
+      );
     }
 
     function isAdmin() {
       return signedIn() && (
         isChiefAdmin() ||
         request.auth.token.admin == true ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == 'tobionlyn@gmail.com') ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
         (request.auth.token.email != null && exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())))
       );

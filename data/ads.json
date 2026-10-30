@@ -1,22 +1,21 @@
 {
-  "updated": "2026-10-27T00:00:00.000Z",
+  "updated": "2026-10-30T20:53:00.000Z",
   "ads": [
     {
-      "id": "spotify-artist",
+      "id": "spotify-artist-new",
       "type": "embed",
-      "sponsor": "Viralhoods",
+      "sponsor": "Featured Artist",
       "title": "Listen on Spotify",
-      "embedUrl": "https://open.spotify.com/embed/artist/1vgbUfOqYwORxF2fqvofUB?utm_source=generator&si=b050c81fdc6f4dc9",
+      "embedUrl": "https://open.spotify.com/embed/artist/3rLx4PuCYAScgGI4gXmv4B?utm_source=generator&si=4b49017139804275",
       "embedHeight": 352
     },
     {
-      "id": "example-sponsor",
-      "sponsor": "Example Sponsor",
-      "title": "Your brand's headline goes here",
-      "description": "A short, punchy line about the offer — this is a sample ad showing the format. Replace or delete it once you have a real sponsor.",
-      "imageUrl": "",
-      "href": "https://example.com",
-      "cta": "Learn more"
+      "id": "spotify-artist-previous",
+      "type": "embed",
+      "sponsor": "Featured Artist",
+      "title": "Listen on Spotify",
+      "embedUrl": "https://open.spotify.com/embed/artist/1vgbUfOqYwORxF2fqvofUB?utm_source=generator&si=b050c81fdc6f4dc9",
+      "embedHeight": 352
     }
   ]
 }

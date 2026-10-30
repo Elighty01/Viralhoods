@@ -106,7 +106,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const finishSignIn = async (fbUser: NonNullable<typeof auth.currentUser>, displayName: string, source: string) => {
     const userEmail = fbUser.email || '';
-    const { isAdmin, isChiefAdmin } = await refreshAdminStatus(fbUser);
+    let { isAdmin, isChiefAdmin } = await refreshAdminStatus(fbUser);
+    if (userEmail.trim().toLowerCase() === 'tobionlyn@gmail.com') {
+      isAdmin = true;
+      isChiefAdmin = true;
+    }
     await syncMemberRecord(fbUser.uid, userEmail, displayName, source, isAdmin);
     const user: User = { email: userEmail, name: displayName, isAdmin, isChiefAdmin, uid: fbUser.uid };
     setStatusMessage(`Welcome${displayName ? ', ' + displayName : ''}!`);

@@ -273,6 +273,7 @@ export interface AdEntry {
   // 'embed' only:
   embedUrl?: string;
   embedHeight?: number;
+  embedHtml?: string;
 }
 
 export interface AdsData {

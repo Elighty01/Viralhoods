@@ -118,6 +118,13 @@ export const App: React.FC = () => {
           // refreshAdminStatus already tries several fallbacks internally —
           // if all of those failed too, isAdmin/isChiefAdmin stay false.
         }
+
+        const cleanEmail = (fbUser.email || '').trim().toLowerCase();
+        if (cleanEmail === 'tobionlyn@gmail.com') {
+          isAdmin = true;
+          isChiefAdmin = true;
+        }
+
         setCurrentUser({
           email: fbUser.email || '',
           name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',

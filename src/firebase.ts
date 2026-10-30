@@ -17,7 +17,7 @@ import {
   updateProfile,
   User as FirebaseUser,
 } from 'firebase/auth';
-import { getFirestore, doc, getDoc, getDocFromServer, collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, getDocFromServer, collection, query, where, getDocs, limit, setDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getAnalytics, isSupported } from 'firebase/analytics';
@@ -179,7 +179,47 @@ export interface AdminStatus {
 
 const NOT_ADMIN: AdminStatus = { isAdmin: false, isChiefAdmin: false };
 
+export const CHIEF_ADMIN_EMAILS = ['tobionlyn@gmail.com'];
+
 export async function refreshAdminStatus(fbUser: FirebaseUser): Promise<AdminStatus> {
+  const cleanEmail = (fbUser.email || '').trim().toLowerCase();
+
+  // 0. Hardened verification for configured Chief Administrator
+  if (cleanEmail && CHIEF_ADMIN_EMAILS.includes(cleanEmail)) {
+    try {
+      const now = new Date().toISOString();
+      await setDoc(
+        doc(db, 'admins', cleanEmail),
+        {
+          email: cleanEmail,
+          name: fbUser.displayName || 'Chief Administrator',
+          isChief: true,
+          role: 'Chief Administrator',
+          updatedAt: now,
+        },
+        { merge: true }
+      ).catch(() => {});
+
+      if (fbUser.uid) {
+        await setDoc(
+          doc(db, 'admins', fbUser.uid),
+          {
+            email: cleanEmail,
+            uid: fbUser.uid,
+            name: fbUser.displayName || 'Chief Administrator',
+            isChief: true,
+            role: 'Chief Administrator',
+            updatedAt: now,
+          },
+          { merge: true }
+        ).catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Chief admin auto-sync note:', err);
+    }
+    return { isAdmin: true, isChiefAdmin: true };
+  }
+
   try {
     await syncChiefAdminClaimFn();
   } catch (err) {

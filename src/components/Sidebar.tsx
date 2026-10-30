@@ -80,16 +80,18 @@ const SectorWidget: React.FC<{ items: NewsItem[]; onSelectCategory: (category: s
 /** One ad slot — either a data-driven card (image/title/description/CTA) or
  * a raw embed (e.g. a Spotify player) read straight from data/ads.json. */
 const AdSlot: React.FC<{ ad: AdEntry }> = ({ ad }) => {
-  if (ad.type === 'embed' && ad.embedUrl) {
+  const embedSrc = ad.embedUrl || (ad.embedHtml ? ad.embedHtml.match(/src=["']([^"']+)["']/i)?.[1] : undefined);
+  if (ad.type === 'embed' && embedSrc) {
     return (
       <div style={{ marginBottom: '14px' }}>
         {ad.title && (
           <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: '6px' }}>{ad.title}</div>
         )}
         <iframe
+          data-testid="embed-iframe"
           title={ad.title || 'Advertisement'}
-          style={{ borderRadius: '12px', display: 'block' }}
-          src={ad.embedUrl}
+          style={{ borderRadius: '12px', display: 'block', border: 'none' }}
+          src={embedSrc}
           width="100%"
           height={ad.embedHeight || 352}
           frameBorder={0}

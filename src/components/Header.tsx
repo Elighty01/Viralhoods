@@ -194,13 +194,21 @@ export const Header: React.FC<HeaderProps> = ({
                 <span>Saved ({bookmarksCount})</span>
               </button>
 
-              {/* Discreet Editorial Console Button for Authorized Session */}
-              {currentUser?.isAdmin && (
+              {/* Editorial Console Button for Authorized Session */}
+              {(currentUser?.isAdmin || currentUser?.isChiefAdmin || currentUser?.email?.trim().toLowerCase() === 'tobionlyn@gmail.com') && (
                 <button
                   type="button"
                   className="icon-btn"
                   onClick={onNavigateAdmin}
-                  style={{ fontWeight: 600 }}
+                  style={{
+                    fontWeight: 700,
+                    background: 'rgba(245, 158, 11, 0.14)',
+                    borderColor: 'var(--sun)',
+                    color: 'var(--sun)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
                   title="Editorial Management Console"
                 >
                   <Shield size={14} /> Console
