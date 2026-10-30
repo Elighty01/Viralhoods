@@ -5,13 +5,14 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Chief-admin status is a custom claim, set server-side only by the
+    // syncChiefAdminClaim Cloud Function (functions/src/index.ts), which
+    // reads the configured email from a Secret Manager secret rather than a
+    // literal in this file — so no account's identifying email has to live
+    // in these rules (this file is plaintext and world-readable, same as
+    // any other file in the repo).
     function isChiefAdmin() {
-      return signedIn() && (
-        request.auth.token.email != null && (
-          request.auth.token.email.lower() == 'tobionlyn@gmail.com' ||
-          request.auth.token.email.matches('(?i)tobionlyn@gmail.com')
-        )
-      );
+      return signedIn() && request.auth.token.chiefAdmin == true;
     }
 
     function isAdmin() {
@@ -60,8 +61,29 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // This collection is unauthenticated-writable by design (it logs every
+    // page view, including from readers who never sign in), which a prior
+    // security review correctly flagged as an open door for write-spam /
+    // cost abuse: `if true` accepted literally any document shape. This
+    // version at least requires a plausible visit-event shape and caps
+    // every string field, so the cheapest possible garbage write is no
+    // longer "an empty document" — it still doesn't rate-limit by volume,
+    // which only Firebase App Check or a Cloud Function proxy can really
+    // do; see the App Check wiring in src/firebase.ts (initAppCheck) for
+    // the recommended next step once a reCAPTCHA key is configured.
     match /analytics_visits/{visitId} {
-      allow create: if true;
+      allow create: if request.resource.data.id is string
+        && request.resource.data.id.size() > 0 && request.resource.data.id.size() <= 100
+        && request.resource.data.visitorId is string
+        && request.resource.data.visitorId.size() > 0 && request.resource.data.visitorId.size() <= 100
+        && request.resource.data.sessionId is string
+        && request.resource.data.sessionId.size() <= 100
+        && request.resource.data.page is string
+        && request.resource.data.page.size() <= 200
+        && request.resource.data.path is string
+        && request.resource.data.path.size() <= 300
+        && request.resource.data.timestamp is string
+        && request.resource.data.timestamp.size() <= 40;
       allow read, update, delete: if isAdmin();
     }
 
@@ -96,20 +118,59 @@ service cloud.firestore {
         && request.resource.data.title.size() > 0
         && request.resource.data.type in ['text', 'image', 'video', 'link'];
       // The author can edit their own post's content; ANY signed-in user can
-      // update a post but ONLY to toggle their own like (so liking someone
-      // else's post doesn't require giving them edit rights to its content);
-      // admins can do either.
+      // update a post but ONLY to toggle their own like or bump the comment
+      // count (so liking/commenting on someone else's post doesn't require
+      // giving them edit rights to its content); admins can do either.
       allow update: if isAdmin()
         || (signedIn() && resource.data.authorUid == request.auth.uid)
-        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'likedBy']));
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'likedBy']))
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['commentCount']));
       allow delete: if isAdmin() || (signedIn() && resource.data.authorUid == request.auth.uid);
+    }
+
+    // Comments on a Community post. Read is public (same as the posts
+    // themselves); only the signed-in author of a comment (or an admin) can
+    // remove it. Comments are immutable once posted (no `update` rule) —
+    // delete and re-post if you need to change one.
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.postId is string
+        && request.resource.data.postId.size() > 0
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 2000;
+      allow delete: if isAdmin() || (signedIn() && resource.data.authorUid == request.auth.uid);
+      allow update: if false;
+    }
+
+    // Follow relationships, one doc per (follower, followed) pair — see
+    // utils/community.ts followUser/unfollowUser. Only the follower can
+    // create or remove their own follow; nobody can "edit" a follow, only
+    // add or remove it.
+    match /follows/{followId} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.followerUid == request.auth.uid
+        && request.resource.data.followedUid is string
+        && request.resource.data.followedUid != request.auth.uid;
+      allow delete: if signedIn() && resource.data.followerUid == request.auth.uid;
+      allow update: if false;
     }
 
     // Public profile info (username, display name, bio) — separate from
     // `registered_users` above, which is private account/login bookkeeping.
     match /profiles/{uid} {
       allow read: if true;
-      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid;
+      // The profile owner can update anything on their own profile. Any
+      // OTHER signed-in user may update a profile too, but ONLY to bump
+      // followerCount (mirrors the posts/{postId} likeCount pattern above)
+      // — that's what happens when someone follows/unfollows this person,
+      // which necessarily touches their profile doc, not the follower's.
+      allow update: if (signedIn() && request.auth.uid == uid)
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followerCount']));
       allow delete: if isAdmin();
     }
 
@@ -127,6 +188,22 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow create: if signedIn() && request.resource.data.reportedBy == request.auth.uid;
       allow read, update, delete: if isAdmin();
+    }
+
+    // "Advertise With Us" contact inbox (Sidebar widget + Footer button).
+    // Anyone — signed in or not, since a prospective advertiser may just be
+    // browsing — can send one; only the Chief Administrator can read, mark
+    // as read, or remove them (see AdminView's "Ad Inquiries" tab).
+    match /ad_inquiries/{inquiryId} {
+      allow create: if request.resource.data.email is string
+        && request.resource.data.email.size() >= 4
+        && request.resource.data.email.size() <= 256
+        && request.resource.data.email.matches('.*@.*\\..*')
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 4000
+        && request.resource.data.createdAt is string;
+      allow read, update, delete: if isChiefAdmin();
     }
   }
 }

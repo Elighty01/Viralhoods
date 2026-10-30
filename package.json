@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "tsc && vite build && cp -r dist/assets . && mkdir -p docs && cp -r dist/* docs/ && cp public/logo.svg . && cp public/logo-horizontal.svg .",
+    "build": "tsc && vite build",
     "lint": "tsc --noEmit",
     "start": "tsx server.ts",
     "scrape": "tsx scripts/scrape.ts",
@@ -29,7 +29,6 @@
     "tsx": "^4.23.15"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^3.0.0",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",

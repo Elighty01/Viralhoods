@@ -202,7 +202,7 @@ app.get('/api/newsletter/status', async (_req, res) => {
       lastDispatchedAt: new Date().toISOString(),
       headlinesCount: itemsCount,
       leadStoryTitle: leadTitle,
-      isBrevoConfigured: Boolean(getBrevoApiKey()),
+      isBrevoConfigured: Boolean(await getBrevoApiKey()),
       isSmtpConfigured: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER),
     });
   } catch (err: any) {

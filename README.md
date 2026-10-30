@@ -23,14 +23,38 @@ npm run dev
 # Build production bundle
 ```
 
-## Deploying to GitHub Pages
+## Deploying to Cloudflare Pages
 
-Viralhoods includes an automated GitHub Actions deployment workflow (`.github/workflows/deploy.yml`).
+Viralhoods includes an automated GitHub Actions deployment workflow (`.github/workflows/deploy.yml`) that builds the site with Vite and publishes `dist/` to Cloudflare Pages via [`cloudflare/wrangler-action`](https://github.com/cloudflare/wrangler-action).
 
-To enable seamless deployments on `https://elighty01.github.io/Viralhoods/`:
-1. In your GitHub repository, navigate to **Settings** &rarr; **Pages**.
-2. Under **Build and deployment** &rarr; **Source**, select **GitHub Actions** (instead of "Deploy from a branch").
-3. Push changes or run the "Deploy to GitHub Pages" action from the **Actions** tab. GitHub will automatically build and publish the app!
+One-time setup:
+1. **Create the Pages project.** In the Cloudflare dashboard, go to **Workers & Pages** &rarr; **Create** &rarr; **Pages**, and create a project (any name — "direct upload" is fine, since the GitHub Actions workflow does the building, not Cloudflare's own Git integration). Note the project name.
+2. **Create an API token.** In the Cloudflare dashboard, go to **My Profile** &rarr; **API Tokens** &rarr; **Create Token**, using the "Edit Cloudflare Workers" template (or a custom token with **Account &rarr; Cloudflare Pages &rarr; Edit** permission). Copy the token.
+3. **Find your Account ID.** Shown on the right-hand side of any zone's Overview page in the Cloudflare dashboard, or in **Workers & Pages** &rarr; **Overview**.
+4. **Add three GitHub repository secrets** (**Settings** &rarr; **Secrets and variables** &rarr; **Actions**):
+   - `CLOUDFLARE_API_TOKEN` — the token from step 2.
+   - `CLOUDFLARE_ACCOUNT_ID` — the ID from step 3.
+   - `CLOUDFLARE_PAGES_PROJECT` — the project name from step 1.
+5. Push to `main` (or run the "Deploy to Cloudflare Pages" workflow from the **Actions** tab). The site will be live at `https://<project-name>.pages.dev` — attach a custom domain under the Pages project's **Custom domains** tab whenever you're ready.
+
+The site builds with a relative asset base path (see `vite.config.ts`), so it works correctly whether it's served from the Pages subdomain, a custom domain, or a subpath — no build configuration changes needed for Cloudflare specifically.
+
+Firebase (Firestore, Auth, Cloud Functions) is unaffected by this — Cloudflare Pages only hosts the static frontend. Functions still deploy separately with `firebase deploy --only functions` and Firestore rules with `firebase deploy --only firestore:rules`.
+
+## Cloud Functions secrets
+
+A few Cloud Functions need secrets set once via the Firebase CLI before `firebase deploy --only functions` will succeed — these are Secret Manager values, never committed to this repo, which is deliberate: anything that used to be a hardcoded default here was flagged in a security review as trivially discoverable (this is a public repo). Run each of these once, from the `functions/` directory or the project root (either works):
+
+```bash
+firebase functions:secrets:set CHIEF_ADMIN_EMAIL   # the one account that gets Chief Administrator powers
+firebase functions:secrets:set BREVO_API_KEY       # for welcome/unsubscribe emails and ad-inquiry notifications
+firebase functions:secrets:set GITHUB_PAT          # fine-grained PAT, Actions:write on this repo only, used to dispatch deploy.yml/news.yml from the admin console
+```
+
+`GITHUB_REPO` isn't sensitive and defaults to `Elighty01/Viralhoods` in source — if you've forked this under a different owner/repo, override it by adding `GITHUB_REPO=yourname/yourrepo` to a `functions/.env` file (not committed; see [the `params` docs](https://firebase.google.com/docs/functions/config-env)).
+
+Optional, for App Check (bot/abuse protection on the publicly-writable `analytics_visits` and `subscribers` collections — see the comment above `initAppCheck` in `src/firebase.ts`):
+- Create a reCAPTCHA v3 key in the Firebase console under **App Check**, then set `VITE_RECAPTCHA_SITE_KEY` as a GitHub Actions secret (picked up automatically by the build step in `deploy.yml`).
 
 ## Structure
 
