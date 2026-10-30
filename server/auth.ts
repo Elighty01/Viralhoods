@@ -167,16 +167,18 @@ export async function sendNewsletterDigest() {
     }
   }
 
-  // Fallback subscribers if empty
-  if (subscribers.length === 0) {
-    subscribers = [{ email: 'tobionlyn@gmail.com', source: 'chief_admin' }];
+  // Fallback subscriber if the real list is empty, so a test send still
+  // goes somewhere — ADMIN_EMAIL (see .env.example), not a hardcoded
+  // address. No fallback at all if that isn't configured either.
+  if (subscribers.length === 0 && process.env.ADMIN_EMAIL) {
+    subscribers = [{ email: process.env.ADMIN_EMAIL, source: 'chief_admin' }];
   }
 
   const subject = `Viralhoods Morning Dispatch: ${digestItems[0]?.title ? digestItems[0].title.slice(0, 60) + '...' : 'Today’s Verified Headlines'}`;
   const previewHtml = generateElegantNewsletterHtml(digestItems);
 
   let brevoResult = { sent: 0, failed: 0, errors: [] as string[], needsIpAuth: false };
-  const hasBrevoKey = Boolean(getBrevoApiKey());
+  const hasBrevoKey = Boolean(await getBrevoApiKey());
 
   if (hasBrevoKey) {
     brevoResult = await sendBrevoNewsletterBatch(subscribers, previewHtml, subject);

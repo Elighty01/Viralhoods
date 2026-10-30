@@ -27,7 +27,14 @@ export interface BrevoResponse {
   messageId?: string;
   error?: string;
   needsIpAuth?: boolean;
+}
+
 import admin from 'firebase-admin';
+
+// Base URL for the Brevo (Sendinblue) v3 REST API. Every call below builds
+// its endpoint off this — it was previously referenced without ever being
+// declared, which made sendBrevoEmail/syncBrevoContact throw at call time.
+const BREVO_API_URL = 'https://api.brevo.com/v3';
 
 let db: admin.firestore.Firestore | null = null;
 try {
@@ -75,7 +82,14 @@ export function setCachedBrevoKey(key: string) {
 export function getDefaultSender(): BrevoSender {
   return {
     name: process.env.BREVO_SENDER_NAME || 'Viralhoods Daily Dispatch',
-    email: process.env.BREVO_SENDER_EMAIL || 'tobionlyn@gmail.com',
+    // No personal-address fallback here on purpose — set BREVO_SENDER_EMAIL
+    // in your .env to whichever address you actually want outgoing mail to
+    // come from. Note that whatever address you do configure will be
+    // visible to every recipient regardless (it's the From: header), so
+    // this is really a "pick a sending identity" setting, not a secrecy
+    // one — a dedicated address (e.g. hello@yourdomain.com) verified in
+    // Brevo is generally a better choice than a personal inbox either way.
+    email: process.env.BREVO_SENDER_EMAIL || 'noreply@viralhoods.com',
   };
 }
 
@@ -142,7 +156,7 @@ export async function sendBrevoEmail(params: SendBrevoEmailParams): Promise<Brev
  * Creates or updates a subscriber contact in Brevo's contact list.
  */
 export async function syncBrevoContact(email: string): Promise<boolean> {
-  const apiKey = getBrevoApiKey();
+  const apiKey = await getBrevoApiKey();
   if (!apiKey || !email) return false;
 
   try {
@@ -166,8 +180,48 @@ export async function syncBrevoContact(email: string): Promise<boolean> {
 }
 
 /**
+ * Marks a contact as unsubscribed/blacklisted in Brevo so they stop
+ * receiving any Brevo-side campaigns too (not just our own transactional
+ * sends). Best-effort: a missing API key or network failure is treated as a
+ * non-fatal no-op by the caller, since the Firestore subscriber record is
+ * the primary source of truth for "are they still subscribed".
+ */
+export async function setBrevoContactUnsubscribed(email: string): Promise<boolean> {
+  const apiKey = await getBrevoApiKey();
+  if (!apiKey || !email) return false;
+
+  try {
+    const res = await fetch(`${BREVO_API_URL}/contacts/${encodeURIComponent(email.trim().toLowerCase())}`, {
+      method: 'PUT',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'api-key': apiKey,
+      },
+      body: JSON.stringify({ emailBlacklisted: true }),
+    });
+
+    return res.ok;
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
  * Generates an elegant publication-grade welcome email confirming a new subscription.
  */
+/** Minimal HTML-escaping for untrusted text (a subscriber-submitted email
+ * address) before it's embedded in a raw HTML email body — kept in sync
+ * with the identical function in src/utils/newsletterTemplate.ts. */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function generateSubscriptionWelcomeHtml(email: string, siteUrl: string = 'https://viralhoods.com'): string {
   const cleanSiteUrl = siteUrl.replace(/\/$/, '');
   const todayStr = new Intl.DateTimeFormat('en-US', {
@@ -217,7 +271,7 @@ export function generateSubscriptionWelcomeHtml(email: string, siteUrl: string =
                 You are now subscribed to the Daily Morning Dispatch.
               </h2>
               <p style="margin: 0 0 16px; font-size: 15px; color: #475569;">
-                Thank you for subscribing with <strong>${email}</strong>. Every morning, you will receive our executive newsletter featuring <strong>strictly the single latest verified development</strong> from each of our 10 monitored sectors:
+                Thank you for subscribing with <strong>${escapeHtml(email)}</strong>. Every morning, you will receive our executive newsletter featuring <strong>strictly the single latest verified development</strong> from each of our 10 monitored sectors:
               </p>
 
               <!-- Sector Badges -->
@@ -265,7 +319,7 @@ export function generateSubscriptionWelcomeHtml(email: string, siteUrl: string =
               </p>
               <p style="margin: 0; color: #64748b; font-size: 11px;">
                 You received this confirmation because you enrolled at <a href="${cleanSiteUrl}" style="color: #38bdf8; text-decoration: none;">Viralhoods.com</a>.<br>
-                To unsubscribe at any time, reply to this email or visit your account settings.
+                <a href="${cleanSiteUrl}/#unsubscribe?email=${encodeURIComponent(email)}" style="color: #38bdf8; text-decoration: none;">Unsubscribe</a> at any time &mdash; one click, no account needed.
               </p>
             </td>
           </tr>
@@ -304,7 +358,7 @@ export async function sendBrevoNewsletterBatch(
   subscribers: Array<{ email: string }>,
   htmlContent: string,
   subject: string
-): Promise<{ sent: number; failed: number; errors: string[]; needsIpAuth?: boolean }> {
+): Promise<{ sent: number; failed: number; errors: string[]; needsIpAuth: boolean }> {
   let sent = 0;
   let failed = 0;
   let needsIpAuth = false;

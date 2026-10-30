@@ -1,14 +1,13 @@
 {
-  "updated": "2026-10-25T00:00:00.000Z",
+  "updated": "2026-10-27T00:00:00.000Z",
   "ads": [
     {
-      "id": "advertise-with-us",
+      "id": "spotify-artist",
+      "type": "embed",
       "sponsor": "Viralhoods",
-      "title": "Advertise with Viralhoods",
-      "description": "Put your brand in front of readers across every sector we cover. Sidebar and newsletter placements available.",
-      "imageUrl": "",
-      "href": "mailto:ads@viralhoods.com?subject=Advertising%20on%20Viralhoods",
-      "cta": "Get in touch"
+      "title": "Listen on Spotify",
+      "embedUrl": "https://open.spotify.com/embed/artist/1vgbUfOqYwORxF2fqvofUB?utm_source=generator&si=b050c81fdc6f4dc9",
+      "embedHeight": 352
     },
     {
       "id": "example-sponsor",

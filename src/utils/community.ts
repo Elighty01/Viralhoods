@@ -19,7 +19,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db, storage, ref, uploadBytesResumable, getDownloadURL, functions, httpsCallable } from '../firebase';
-import { CommunityPost, PostType, UserProfile, LinkPreview } from '../types';
+import { CommunityPost, CommunityComment, PostType, UserProfile, LinkPreview } from '../types';
 
 // ---------------------------------------------------------------------------
 // Usernames & profiles
@@ -141,6 +141,25 @@ export function parseVideoEmbedUrl(rawUrl: string): { embedUrl: string; platform
     if (id) return { embedUrl: `https://player.vimeo.com/video/${id}`, platform: 'Vimeo' };
   }
   return null;
+}
+
+/** A Community post is just "links and text" — there's no separate upload
+ * flow for images/video anymore (see CreatePostModal). When a link IS
+ * directly a picture or a playable video file, we show it as a real
+ * preview instead of a generic link card. Checked by extension, ignoring
+ * any query string (e.g. a CDN cache-busting param). */
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
+const VIDEO_FILE_EXTENSIONS = /\.(mp4|webm|ogg|mov)$/i;
+
+export function getDirectLinkMediaKind(rawUrl: string): 'image' | 'video' | null {
+  try {
+    const { pathname } = new URL(rawUrl.trim());
+    if (IMAGE_EXTENSIONS.test(pathname)) return 'image';
+    if (VIDEO_FILE_EXTENSIONS.test(pathname)) return 'video';
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -294,5 +313,128 @@ export async function reportPost(postId: string, reportedBy: string, reason: str
     reason: reason.slice(0, 500),
     createdAt: new Date().toISOString(),
     status: 'open',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+export interface CreateCommentInput {
+  postId: string;
+  authorUid: string;
+  authorUsername: string;
+  authorName: string;
+  body: string;
+}
+
+export async function fetchComments(postId: string, max = 100): Promise<CommunityComment[]> {
+  try {
+    const q = query(
+      collection(db, 'comments'),
+      where('postId', '==', postId),
+      orderBy('createdAt', 'asc'),
+      fsLimit(max)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        postId: data.postId,
+        authorUid: data.authorUid,
+        authorUsername: data.authorUsername,
+        authorName: data.authorName,
+        body: data.body,
+        createdAt: data.createdAt || new Date().toISOString(),
+      };
+    });
+  } catch (err) {
+    console.warn('fetchComments error:', err);
+    return [];
+  }
+}
+
+/** Adds a comment, then bumps the post's denormalized commentCount.
+ * Firestore's increment() is itself conflict-free, so this doesn't need a
+ * transaction the way claimUsername does. */
+export async function addComment(input: CreateCommentInput): Promise<CommunityComment> {
+  const createdAt = new Date().toISOString();
+  const docRef = await addDoc(collection(db, 'comments'), {
+    postId: input.postId,
+    authorUid: input.authorUid,
+    authorUsername: input.authorUsername,
+    authorName: input.authorName,
+    body: input.body.trim().slice(0, 2000),
+    createdAt,
+  });
+  updateDoc(doc(db, 'posts', input.postId), { commentCount: increment(1) }).catch((err) =>
+    console.warn('commentCount increment note:', err)
+  );
+  return {
+    id: docRef.id,
+    postId: input.postId,
+    authorUid: input.authorUid,
+    authorUsername: input.authorUsername,
+    authorName: input.authorName,
+    body: input.body.trim().slice(0, 2000),
+    createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Follow / unfollow
+// ---------------------------------------------------------------------------
+
+const followDocId = (followerUid: string, followedUid: string) => `${followerUid}_${followedUid}`;
+
+/** Fetches the set of uids the given user already follows, in one query —
+ * used to render every "Follow"/"Following" button on a page (the
+ * Community feed, a profile) without a read per card. */
+export async function fetchFollowingSet(followerUid: string): Promise<Set<string>> {
+  try {
+    const q = query(collection(db, 'follows'), where('followerUid', '==', followerUid));
+    const snap = await getDocs(q);
+    return new Set(snap.docs.map((d) => (d.data() as any).followedUid as string));
+  } catch (err) {
+    console.warn('fetchFollowingSet error:', err);
+    return new Set();
+  }
+}
+
+export async function isFollowing(followerUid: string, followedUid: string): Promise<boolean> {
+  try {
+    const snap = await getDoc(doc(db, 'follows', followDocId(followerUid, followedUid)));
+    return snap.exists();
+  } catch (err) {
+    console.warn('isFollowing error:', err);
+    return false;
+  }
+}
+
+/** Creates the follow doc and increments the followed user's denormalized
+ * followerCount in one transaction — see firestore.rules for why a
+ * non-owner is allowed to touch that one field on someone else's profile. */
+export async function followUser(followerUid: string, followedUid: string): Promise<void> {
+  if (followerUid === followedUid) return;
+  const followRef = doc(db, 'follows', followDocId(followerUid, followedUid));
+  const profileRef = doc(db, 'profiles', followedUid);
+  await runTransaction(db, async (tx) => {
+    const existing = await tx.get(followRef);
+    if (existing.exists()) return; // already following — no-op
+    tx.set(followRef, { followerUid, followedUid, createdAt: new Date().toISOString() });
+    tx.set(profileRef, { followerCount: increment(1) }, { merge: true });
+  });
+}
+
+export async function unfollowUser(followerUid: string, followedUid: string): Promise<void> {
+  if (followerUid === followedUid) return;
+  const followRef = doc(db, 'follows', followDocId(followerUid, followedUid));
+  const profileRef = doc(db, 'profiles', followedUid);
+  await runTransaction(db, async (tx) => {
+    const existing = await tx.get(followRef);
+    if (!existing.exists()) return; // not following — no-op
+    tx.delete(followRef);
+    tx.set(profileRef, { followerCount: increment(-1) }, { merge: true });
   });
 }

@@ -18,6 +18,7 @@ const CommunityHub = lazy(() => import('./components/CommunityHub').then((m) => 
 const ProfilePage = lazy(() => import('./components/ProfilePage').then((m) => ({ default: m.ProfilePage })));
 const CreatePostModal = lazy(() => import('./components/CreatePostModal').then((m) => ({ default: m.CreatePostModal })));
 const UsernameSetupModal = lazy(() => import('./components/UsernameSetupModal').then((m) => ({ default: m.UsernameSetupModal })));
+const AdContactModal = lazy(() => import('./components/AdContactModal').then((m) => ({ default: m.AdContactModal })));
 import { NewsData, NewsItem, CATEGORIES, User, CommunityPost, categoryMatches } from './types';
 import { NewsletterModal } from './components/NewsletterModal';
 import { LogOut, X } from 'lucide-react';
@@ -39,6 +40,7 @@ import {
   saveCustomStory,
   deleteCustomStory,
   addSubscriber,
+  unsubscribeFromNewsletter,
 } from './utils/storage';
 import { fetchProfileByUid } from './utils/community';
 import { trackPageVisit } from './utils/analytics';
@@ -76,6 +78,10 @@ export const App: React.FC = () => {
 
   // Daily Newsletter Publication Modal state
   const [isNewsletterOpen, setIsNewsletterOpen] = useState<boolean>(false);
+  const [unsubscribePrefillEmail, setUnsubscribePrefillEmail] = useState<string>('');
+
+  // "Advertise With Us" contact popup — opened from the Sidebar widget and the Footer
+  const [isAdContactOpen, setIsAdContactOpen] = useState<boolean>(false);
 
   // Community (blog/board) state
   const [activeProfileUsername, setActiveProfileUsername] = useState<string>('');
@@ -97,23 +103,26 @@ export const App: React.FC = () => {
     // (see firebase.ts `refreshAdminStatus`), not a locally-stored flag.
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        const isChief = fbUser.email?.trim().toLowerCase() === 'tobionlyn@gmail.com';
-        let isAdmin = isChief;
+        let isAdmin = false;
+        let isChiefAdmin = false;
         let profile = null;
         try {
           const res = await Promise.all([
-            refreshAdminStatus(fbUser).catch(() => isChief),
+            refreshAdminStatus(fbUser).catch(() => ({ isAdmin: false, isChiefAdmin: false })),
             fetchProfileByUid(fbUser.uid).catch(() => null),
           ]);
-          isAdmin = res[0];
+          isAdmin = res[0].isAdmin;
+          isChiefAdmin = res[0].isChiefAdmin;
           profile = res[1];
         } catch {
-          isAdmin = isChief;
+          // refreshAdminStatus already tries several fallbacks internally —
+          // if all of those failed too, isAdmin/isChiefAdmin stay false.
         }
         setCurrentUser({
           email: fbUser.email || '',
           name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Member',
-          isAdmin: Boolean(isAdmin || isChief),
+          isAdmin,
+          isChiefAdmin,
           uid: fbUser.uid,
           username: profile?.username || null,
         });
@@ -198,6 +207,20 @@ export const App: React.FC = () => {
 
   // Resolve route from hash, pathname, or search query params
   const handleHashChange = useCallback(() => {
+    // Unsubscribe links (from the welcome email or a newsletter footer)
+    // carry a query string after the route — #unsubscribe?email=foo%2Bbar%40x.com
+    // — so this is handled against the raw hash, before the generic
+    // decode-and-strip logic below (which would otherwise risk mangling a
+    // '+' in a plus-addressed email, e.g. someone@gmail.com style tags).
+    const rawHash = window.location.hash || '';
+    if (/^#\/?unsubscribe\b/i.test(rawHash)) {
+      const qIndex = rawHash.indexOf('?');
+      const emailParam = qIndex >= 0 ? new URLSearchParams(rawHash.slice(qIndex + 1)).get('email') : null;
+      setUnsubscribePrefillEmail(emailParam || '');
+      setIsNewsletterOpen(true);
+      return;
+    }
+
     let rawRoute = '';
 
     // 1. Prefer hash if present
@@ -250,7 +273,9 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (rawRoute.toLowerCase() === 'community') {
+    // 'community' or 'community/<postId>' (a post's Share link lands here —
+    // there's no separate single-post page, so it opens the Community feed).
+    if (rawRoute.toLowerCase() === 'community' || rawRoute.toLowerCase().startsWith('community/')) {
       setView('community');
       return;
     }
@@ -568,6 +593,10 @@ export const App: React.FC = () => {
     return await addSubscriber(email, 'newsletter_box', currentUser?.uid);
   };
 
+  const handleUnsubscribe = async (email: string): Promise<boolean> => {
+    return await unsubscribeFromNewsletter(email);
+  };
+
   // Admin Story operations
   const handleAddCustomStory = (story: NewsItem) => {
     setCustomStories((prev) => [story, ...prev]);
@@ -624,6 +653,7 @@ export const App: React.FC = () => {
           onNavigateCommunity={() => handleNavigateView('community')}
           onSelectCategory={handleSelectCategory}
           onOpenNewsletter={() => setIsNewsletterOpen(true)}
+          onOpenAdContact={() => setIsAdContactOpen(true)}
         />
       )}
 
@@ -677,6 +707,7 @@ export const App: React.FC = () => {
             username={activeProfileUsername}
             currentUser={currentUser}
             onOpenProfile={handleOpenProfile}
+            onOpenAuth={handleOpenAuthWithMessage}
             onBack={() => handleNavigateView('community')}
           />
         </Suspense>
@@ -697,7 +728,7 @@ export const App: React.FC = () => {
         </Suspense>
       )}
 
-      <Footer currentUser={currentUser} onNavigate={handleNavigateView} />
+      <Footer currentUser={currentUser} onNavigate={handleNavigateView} onOpenAdContact={() => setIsAdContactOpen(true)} />
 
       {/* Auth & Newsletter Modal — mounted only while open, so its code
           isn't fetched until the reader actually opens it. */}
@@ -864,7 +895,8 @@ export const App: React.FC = () => {
         isOpen={isNewsletterOpen}
         onClose={() => {
           setIsNewsletterOpen(false);
-          if (typeof window !== 'undefined' && window.location.hash.toLowerCase().includes('newsletter')) {
+          setUnsubscribePrefillEmail('');
+          if (typeof window !== 'undefined' && /newsletter|unsubscribe/i.test(window.location.hash)) {
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
           }
         }}
@@ -877,7 +909,14 @@ export const App: React.FC = () => {
           }
         }}
         onSubscribe={handleSubscribe}
+        onUnsubscribe={handleUnsubscribe}
+        initialUnsubscribeEmail={unsubscribePrefillEmail || undefined}
       />
+
+      {/* "Advertise With Us" contact popup — Sidebar widget + Footer button */}
+      <Suspense fallback={null}>
+        <AdContactModal isOpen={isAdContactOpen} onClose={() => setIsAdContactOpen(false)} currentUser={currentUser} />
+      </Suspense>
     </>
   );
 };

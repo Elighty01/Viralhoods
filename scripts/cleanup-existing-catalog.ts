@@ -95,7 +95,10 @@ for (const list of byKey.values()) {
 }
 
 const output = { updated: new Date().toISOString(), items: kept };
-const targets = ['data/news.json', 'public/data/news.json', 'docs/data/news.json'];
+// public/data is the one Vite actually copies into dist/ at build time (see
+// vite.config.ts) — docs/ is a stale leftover from an old GitHub Pages
+// deploy method that deploy.yml no longer uses, so it was dropped here.
+const targets = ['data/news.json', 'public/data/news.json'];
 for (const t of targets) {
   fs.writeFileSync(t, JSON.stringify(output, null, 2), 'utf-8');
 }

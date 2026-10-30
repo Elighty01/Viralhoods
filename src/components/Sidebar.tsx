@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight, Layers, TrendingUp, Users } from 'lucide-react';
-import { CATEGORIES, type NewsItem } from '../types';
+import { ArrowUpRight, Layers, TrendingUp, Users, Megaphone, Mail } from 'lucide-react';
+import { CATEGORIES, type NewsItem, type AdEntry, type AdsData } from '../types';
 
 interface SidebarProps {
   items: NewsItem[];
   onOpenStory: (item: NewsItem) => void;
   onSelectCategory: (category: string) => void;
   onNavigateCommunity: () => void;
+  onOpenAdContact: () => void;
 }
 
 const SectorWidget: React.FC<{ items: NewsItem[]; onSelectCategory: (category: string) => void }> = ({ items, onSelectCategory }) => {
@@ -76,7 +77,119 @@ const SectorWidget: React.FC<{ items: NewsItem[]; onSelectCategory: (category: s
   );
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ items, onOpenStory, onSelectCategory, onNavigateCommunity }) => {
+/** One ad slot — either a data-driven card (image/title/description/CTA) or
+ * a raw embed (e.g. a Spotify player) read straight from data/ads.json. */
+const AdSlot: React.FC<{ ad: AdEntry }> = ({ ad }) => {
+  if (ad.type === 'embed' && ad.embedUrl) {
+    return (
+      <div style={{ marginBottom: '14px' }}>
+        {ad.title && (
+          <div style={{ fontSize: '0.74rem', fontWeight: 700, color: 'var(--fg-muted)', marginBottom: '6px' }}>{ad.title}</div>
+        )}
+        <iframe
+          title={ad.title || 'Advertisement'}
+          style={{ borderRadius: '12px', display: 'block' }}
+          src={ad.embedUrl}
+          width="100%"
+          height={ad.embedHeight || 352}
+          frameBorder={0}
+          allowFullScreen
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          loading="lazy"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={ad.href || '#'}
+      target={ad.href?.startsWith('mailto:') ? undefined : '_blank'}
+      rel="noopener noreferrer"
+      style={{
+        display: 'block',
+        marginBottom: '14px',
+        border: '1px solid var(--line)',
+        borderRadius: 'var(--radius-md)',
+        overflow: 'hidden',
+        textDecoration: 'none',
+        color: 'inherit',
+      }}
+    >
+      {ad.imageUrl && (
+        <img src={ad.imageUrl} alt={ad.title || ad.sponsor || 'Advertisement'} style={{ width: '100%', display: 'block', maxHeight: '140px', objectFit: 'cover' }} loading="lazy" />
+      )}
+      <div style={{ padding: '10px 12px' }}>
+        {ad.sponsor && (
+          <div style={{ fontSize: '0.66rem', fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--fg-muted)', marginBottom: '4px' }}>
+            {ad.sponsor}
+          </div>
+        )}
+        {ad.title && <div style={{ fontSize: '0.86rem', fontWeight: 700, marginBottom: '4px' }}>{ad.title}</div>}
+        {ad.description && <div style={{ fontSize: '0.78rem', color: 'var(--fg-muted)', marginBottom: '6px' }}>{ad.description}</div>}
+        {ad.cta && (
+          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--blue)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            {ad.cta} <ArrowUpRight size={12} />
+          </span>
+        )}
+      </div>
+    </a>
+  );
+};
+
+const AdvertisementWidget: React.FC<{ onOpenAdContact: () => void }> = ({ onOpenAdContact }) => {
+  const [ads, setAds] = useState<AdEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const base = (import.meta.env.BASE_URL || './').replace(/\/$/, '');
+    fetch(`${base}/data/ads.json?t=${Date.now()}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: AdsData | null) => {
+        if (!cancelled && data?.ads) setAds(data.ads);
+      })
+      .catch(() => {
+        /* no ads configured yet — the widget still renders the Contact card below */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div className="widget-box">
+      <h3 className="widget-title">
+        <Megaphone size={16} /> Advertisement
+      </h3>
+
+      {ads.map((ad) => (
+        <AdSlot key={ad.id} ad={ad} />
+      ))}
+
+      {/* The "extra column" for advertiser outreach — always present, even
+          with no ads.json entries yet. */}
+      <div
+        style={{
+          border: '1px dashed var(--line-strong)',
+          borderRadius: 'var(--radius-md)',
+          padding: '16px 14px',
+          textAlign: 'center',
+        }}
+      >
+        <Mail size={18} color="var(--blue)" style={{ marginBottom: '6px' }} />
+        <div style={{ fontSize: '0.84rem', fontWeight: 700, marginBottom: '2px' }}>Your ad here</div>
+        <p style={{ fontSize: '0.76rem', color: 'var(--fg-muted)', margin: '0 0 10px' }}>
+          Put your brand in front of Viralhoods readers.
+        </p>
+        <button type="button" className="btn-outline" onClick={onOpenAdContact} style={{ width: '100%', padding: '8px', fontSize: '0.8rem' }}>
+          Contact Us for Ads
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export const Sidebar: React.FC<SidebarProps> = ({ items, onOpenStory, onSelectCategory, onNavigateCommunity, onOpenAdContact }) => {
   const trendingStories = useMemo(() => {
     return [...items]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -85,6 +198,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ items, onOpenStory, onSelectCa
 
   return (
     <aside className="side-col">
+      <AdvertisementWidget onOpenAdContact={onOpenAdContact} />
+
       <div className="widget-box">
         <h3 className="widget-title">
           <TrendingUp size={16} /> Trending Now

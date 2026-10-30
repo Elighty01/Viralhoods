@@ -1,22 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, AtSign, Calendar, Edit3, Check } from 'lucide-react';
+import { Loader2, AtSign, Calendar, Edit3, Check, UserPlus, UserCheck } from 'lucide-react';
 import { CommunityPost, User, UserProfile } from '../types';
-import { fetchProfileByUsername, fetchPostsByUsername, togglePostLike, deletePost, updateProfileBio } from '../utils/community';
+import { fetchProfileByUsername, fetchPostsByUsername, togglePostLike, deletePost, updateProfileBio, isFollowing as checkIsFollowing, followUser, unfollowUser } from '../utils/community';
 import { PostCard } from './PostCard';
 
 interface ProfilePageProps {
   username: string;
   currentUser: User | null;
   onOpenProfile: (username: string) => void;
+  onOpenAuth: (message?: string) => void;
   onBack: () => void;
 }
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ username, currentUser, onOpenProfile, onBack }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ username, currentUser, onOpenProfile, onOpenAuth, onBack }) => {
   const [profile, setProfile] = useState<UserProfile | null | undefined>(undefined);
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [bioDraft, setBioDraft] = useState('');
+  const [isFollowingProfile, setIsFollowingProfile] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [isFollowBusy, setIsFollowBusy] = useState(false);
 
   const isOwnProfile = Boolean(currentUser?.username && currentUser.username.toLowerCase() === username.toLowerCase());
 
@@ -28,13 +32,43 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ username, currentUser,
       if (cancelled) return;
       setProfile(p);
       setBioDraft(p?.bio || '');
+      setFollowerCount(p?.followerCount || 0);
       setPosts(userPosts);
       setIsLoading(false);
+
+      if (p && currentUser?.uid && currentUser.uid !== p.uid) {
+        checkIsFollowing(currentUser.uid, p.uid).then((v) => {
+          if (!cancelled) setIsFollowingProfile(v);
+        });
+      } else {
+        setIsFollowingProfile(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [username]);
+  }, [username, currentUser?.uid]);
+
+  const handleToggleFollow = async () => {
+    if (!currentUser?.uid) {
+      onOpenAuth('Sign in to follow people.');
+      return;
+    }
+    if (!profile || isFollowBusy) return;
+    setIsFollowBusy(true);
+    const wasFollowing = isFollowingProfile;
+    setIsFollowingProfile(!wasFollowing);
+    setFollowerCount((c) => Math.max(0, c + (wasFollowing ? -1 : 1)));
+    try {
+      if (wasFollowing) await unfollowUser(currentUser.uid, profile.uid);
+      else await followUser(currentUser.uid, profile.uid);
+    } catch {
+      setIsFollowingProfile(wasFollowing);
+      setFollowerCount((c) => Math.max(0, c + (wasFollowing ? 1 : -1)));
+    } finally {
+      setIsFollowBusy(false);
+    }
+  };
 
   const handleToggleLike = async (post: CommunityPost) => {
     if (!currentUser?.uid) return;
@@ -116,7 +150,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ username, currentUser,
           {profile.displayName.charAt(0).toUpperCase()}
         </div>
         <div style={{ flex: 1, minWidth: '200px' }}>
-          <h1 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 2px' }}>{profile.displayName}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: '1.3rem', fontWeight: 800, margin: '0 0 2px' }}>{profile.displayName}</h1>
+            {!isOwnProfile && (
+              <button
+                type="button"
+                onClick={handleToggleFollow}
+                disabled={isFollowBusy}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  border: '1px solid',
+                  borderColor: isFollowingProfile ? 'var(--line)' : 'var(--blue)',
+                  background: isFollowingProfile ? 'var(--bg-subtle)' : 'var(--blue-tint)',
+                  color: isFollowingProfile ? 'var(--fg-muted)' : 'var(--blue)',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  cursor: isFollowBusy ? 'default' : 'pointer',
+                  opacity: isFollowBusy ? 0.7 : 1,
+                }}
+              >
+                {isFollowingProfile ? <UserCheck size={13} /> : <UserPlus size={13} />}
+                {isFollowingProfile ? 'Following' : 'Follow'}
+              </button>
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--fg-muted)', fontSize: '0.84rem', flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <AtSign size={13} /> {profile.username}
@@ -125,6 +186,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ username, currentUser,
               <Calendar size={13} /> Joined {new Date(profile.createdAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
             </span>
             <span>{posts.length} {posts.length === 1 ? 'post' : 'posts'}</span>
+            <span>{followerCount} {followerCount === 1 ? 'follower' : 'followers'}</span>
           </div>
 
           {isEditingBio ? (
@@ -173,6 +235,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ username, currentUser,
               onOpenAuthor={onOpenProfile}
               onReport={() => {}}
               onDelete={handleDelete}
+              onOpenAuth={onOpenAuth}
             />
           ))}
         </div>

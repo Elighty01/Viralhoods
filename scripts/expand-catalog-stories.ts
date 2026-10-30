@@ -151,7 +151,11 @@ export function expandAllCatalogNews() {
     items: expandedItems,
   };
 
-  const targets = ['data/news.json', 'public/data/news.json', 'docs/data/news.json', 'dist/data/news.json'];
+  // public/data is the one Vite actually copies into dist/ at build time
+  // (see vite.config.ts) — docs/ and a standalone dist/ write here are
+  // stale leftovers from an old GitHub Pages deploy method that deploy.yml
+  // no longer uses, so they were dropped from this list.
+  const targets = ['data/news.json', 'public/data/news.json'];
 
   for (const t of targets) {
     try {

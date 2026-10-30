@@ -41,6 +41,11 @@ export interface User {
   // verified server-side — see firebase.ts `refreshAdminStatus`. This is no
   // longer a client-trusted flag by itself.
   isAdmin: boolean;
+  // Reflects the "chiefAdmin": true custom claim — distinct from isAdmin so
+  // an appointed (non-chief) admin can't accidentally gain chief-only
+  // powers. Also server-verified, same as isAdmin (see firebase.ts
+  // `refreshAdminStatus`).
+  isChiefAdmin?: boolean;
   uid?: string;
   // Set once the user claims a Community username (see utils/community.ts
   // `claimUsername`). Undefined/null means they haven't picked one yet.
@@ -62,20 +67,18 @@ export interface RegisteredMemberRecord {
   location?: string;
 }
 
-// The Chief Administrator's identity. This is a UI hint only (used to label
-// the roster and decide whether to *attempt* the admin claim bootstrap after
-// sign-in) — it grants no privilege by itself. Real authorization is a
-// Firebase custom claim ("admin": true) that only the `syncChiefAdminClaim`
-// Cloud Function can set, and that Firestore security rules check
-// server-side. See functions/src/index.ts.
-export const CHIEF_ADMIN_EMAILS = ['tobionlyn@gmail.com'] as const;
-export const CHIEF_ADMIN_EMAIL = CHIEF_ADMIN_EMAILS[0];
-
-export const isChiefAdminEmail = (emailOrUsername?: string | null): boolean => {
-  if (!emailOrUsername) return false;
-  const clean = emailOrUsername.trim().toLowerCase();
-  return clean === CHIEF_ADMIN_EMAIL.toLowerCase();
-};
+// NOTE: the Chief Administrator's email used to be a hardcoded exported
+// constant here, which meant it shipped in plaintext inside the public JS
+// bundle (and in this public repo's source) — an easy target for phishing
+// or credential-stuffing against that one account. It's been removed.
+// Chief-admin status is now purely a Firebase Auth custom claim
+// ("chiefAdmin": true), set server-side by the `syncChiefAdminClaim` Cloud
+// Function (which reads the configured email from a Secret Manager secret,
+// never from committed source — see functions/src/index.ts) and checked
+// both by Firestore security rules and by `currentUser.isChiefAdmin` on the
+// client (populated from the verified ID token — see firebase.ts
+// `refreshAdminStatus`). Nothing in this file needs to know the actual
+// email at all.
 
 export interface AdminMember {
   email: string;
@@ -222,6 +225,59 @@ export interface UserProfile {
   bio?: string;
   photoURL?: string | null;
   createdAt: string;
+  // Denormalized counters, kept in sync by followUser/unfollowUser (see
+  // utils/community.ts). followerCount is the one shown on profiles/posts;
+  // followingCount is tracked for symmetry/future use.
+  followerCount?: number;
+  followingCount?: number;
+}
+
+// A follow relationship: one doc per (followerUid, followedUid) pair, keyed
+// by `${followerUid}_${followedUid}` so follow/unfollow is idempotent.
+export interface CommunityFollow {
+  followerUid: string;
+  followedUid: string;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Advertise With Us — "contact us for ads" inbox (Sidebar + Footer button).
+// Visible only to the Chief Administrator (see firestore.rules and
+// AdminView's "Ad Inquiries" tab).
+// ---------------------------------------------------------------------------
+
+export interface AdInquiry {
+  id: string;
+  name?: string;
+  email: string;
+  message: string;
+  createdAt: string;
+  read?: boolean;
+}
+
+// A single slot in the Sidebar's Advertisement widget, read at runtime from
+// data/ads.json (see Sidebar.tsx and the README's "Posting / editing
+// adverts" section). Two shapes share this collection:
+//  - 'card' (the default, so existing ads.json files without a `type`
+//    still work): an image/title/description/button ad.
+//  - 'embed': a raw iframe embed (e.g. a Spotify player) rendered as-is.
+export interface AdEntry {
+  id: string;
+  type?: 'card' | 'embed';
+  sponsor?: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  href?: string;
+  cta?: string;
+  // 'embed' only:
+  embedUrl?: string;
+  embedHeight?: number;
+}
+
+export interface AdsData {
+  updated: string;
+  ads: AdEntry[];
 }
 
 export interface UnifiedSearchResponse {

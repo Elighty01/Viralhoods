@@ -1,5 +1,5 @@
-import { Subscriber, NewsItem, isChiefAdminEmail } from '../types';
-import { db } from '../firebase';
+import { Subscriber, NewsItem } from '../types';
+import { db, functions, httpsCallable } from '../firebase';
 import { collection, doc, setDoc, getDocs, deleteDoc } from 'firebase/firestore';
 
 const SUBSCRIBERS_KEY = 'viralhoods_subscribers';
@@ -111,6 +111,41 @@ export const addSubscriber = async (
     }).catch(() => {});
   } catch {
     // non-fatal
+  }
+
+  return true;
+};
+
+/**
+ * Unsubscribes an email from the newsletter — calls the
+ * `unsubscribeFromNewsletter` Cloud Function (functions/src/index.ts),
+ * which is the one path guaranteed to work both locally and on the
+ * deployed site regardless of whether the optional Express server (see
+ * server.ts) happens to be running, since it removes every matching
+ * /subscribers doc (there can be more than one for the same email — see
+ * that function's comment) and best-effort unsubscribes them in Brevo too.
+ * No sign-in required, same as clicking an unsubscribe link in any email.
+ */
+export const unsubscribeFromNewsletter = async (email: string): Promise<boolean> => {
+  const clean = email.trim().toLowerCase();
+  if (!clean || !clean.includes('@')) return false;
+
+  try {
+    const fn = httpsCallable(functions, 'unsubscribeFromNewsletter');
+    await fn({ email: clean });
+  } catch (err) {
+    console.warn('[Subscribers] unsubscribeFromNewsletter call failed:', err);
+    return false;
+  }
+
+  // Keep the local cache in sync so the UI doesn't still think they're
+  // subscribed on this device.
+  try {
+    const current = getSubscribers();
+    const updated = current.filter((s) => s.email.toLowerCase() !== clean);
+    localStorage.setItem(SUBSCRIBERS_KEY, JSON.stringify(updated));
+  } catch (e) {
+    console.error('Storage error', e);
   }
 
   return true;
@@ -254,4 +289,3 @@ export const deleteCustomStory = (storyId: string): void => {
   }
 };
 
-export { isChiefAdminEmail };

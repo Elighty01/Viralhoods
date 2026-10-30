@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { PlusCircle, Users, Loader2 } from 'lucide-react';
-import { CommunityPost, User, PostType } from '../types';
-import { fetchAllPosts, togglePostLike, deletePost, reportPost } from '../utils/community';
+import { CommunityPost, User } from '../types';
+import { fetchAllPosts, togglePostLike, deletePost, reportPost, fetchFollowingSet, followUser, unfollowUser } from '../utils/community';
 import { PostCard } from './PostCard';
 
 interface CommunityHubProps {
@@ -12,19 +12,11 @@ interface CommunityHubProps {
   newPost?: CommunityPost | null;
 }
 
-const FILTER_TABS: { id: PostType | 'all'; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'text', label: 'Text' },
-  { id: 'image', label: 'Image' },
-  { id: 'video', label: 'Video' },
-  { id: 'link', label: 'Link' },
-];
-
 export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenAuth, onOpenCreatePost, onOpenProfile, newPost }) => {
   const [posts, setPosts] = useState<CommunityPost[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [filter, setFilter] = useState<PostType | 'all'>('all');
   const [reportTarget, setReportTarget] = useState<CommunityPost | null>(null);
+  const [followingSet, setFollowingSet] = useState<Set<string>>(new Set());
 
   const load = async () => {
     setIsLoading(true);
@@ -36,6 +28,15 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenA
   useEffect(() => {
     load();
   }, []);
+
+  // One query for every author's follow state, instead of a read per card.
+  useEffect(() => {
+    if (!currentUser?.uid) {
+      setFollowingSet(new Set());
+      return;
+    }
+    fetchFollowingSet(currentUser.uid).then(setFollowingSet);
+  }, [currentUser?.uid]);
 
   // A freshly created post is prepended immediately for a snappy feel,
   // instead of waiting on a full refetch.
@@ -65,6 +66,32 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenA
     }
   };
 
+  const handleToggleFollow = async (post: CommunityPost) => {
+    if (!currentUser?.uid) {
+      onOpenAuth('Sign in to follow people.');
+      return;
+    }
+    const alreadyFollowing = followingSet.has(post.authorUid);
+    setFollowingSet((prev) => {
+      const next = new Set(prev);
+      if (alreadyFollowing) next.delete(post.authorUid);
+      else next.add(post.authorUid);
+      return next;
+    });
+    try {
+      if (alreadyFollowing) await unfollowUser(currentUser.uid, post.authorUid);
+      else await followUser(currentUser.uid, post.authorUid);
+    } catch {
+      // Revert the optimistic toggle on failure.
+      setFollowingSet((prev) => {
+        const next = new Set(prev);
+        if (alreadyFollowing) next.add(post.authorUid);
+        else next.delete(post.authorUid);
+        return next;
+      });
+    }
+  };
+
   const handleDelete = async (post: CommunityPost) => {
     if (!confirm(`Delete "${post.title}"? This can't be undone.`)) return;
     setPosts((prev) => prev.filter((p) => p.id !== post.id));
@@ -75,8 +102,6 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenA
     }
   };
 
-  const filtered = filter === 'all' ? posts : posts.filter((p) => p.type === filter);
-
   return (
     <main className="w" style={{ padding: '32px 16px 60px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap', marginBottom: '22px' }}>
@@ -85,7 +110,7 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenA
             <Users size={24} color="var(--blue)" /> Community
           </h1>
           <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.92rem' }}>
-            Posts from Viralhoods readers — share a thought, a picture, a video, or anything worth linking to.
+            Posts from Viralhoods readers — share a thought or a link worth sharing.
           </p>
         </div>
         <button
@@ -98,42 +123,19 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenA
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
-        {FILTER_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setFilter(t.id)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '20px',
-              border: '1px solid',
-              borderColor: filter === t.id ? 'var(--blue)' : 'var(--line)',
-              background: filter === t.id ? 'var(--blue-tint)' : 'var(--bg-card)',
-              color: filter === t.id ? 'var(--blue)' : 'var(--fg-muted)',
-              fontWeight: 700,
-              fontSize: '0.82rem',
-              cursor: 'pointer',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--fg-muted)' }}>
           <Loader2 size={24} className="spin-icon" />
           <p style={{ marginTop: '10px' }}>Loading posts...</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : posts.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--fg-muted)', border: '1px dashed var(--line)', borderRadius: 'var(--radius-lg)' }}>
           <p style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 6px', color: 'var(--fg)' }}>No posts yet</p>
           <p style={{ margin: 0, fontSize: '0.88rem' }}>Be the first to share something with the community.</p>
         </div>
       ) : (
         <div className="grid">
-          {filtered.map((post) => (
+          {posts.map((post) => (
             <PostCard
               key={post.id}
               post={post}
@@ -142,6 +144,9 @@ export const CommunityHub: React.FC<CommunityHubProps> = ({ currentUser, onOpenA
               onOpenAuthor={onOpenProfile}
               onReport={setReportTarget}
               onDelete={handleDelete}
+              onOpenAuth={onOpenAuth}
+              isFollowingAuthor={followingSet.has(post.authorUid)}
+              onToggleFollow={handleToggleFollow}
             />
           ))}
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, isChiefAdminEmail } from '../types';
+import { User } from '../types';
 import {
   auth,
   googleProvider,
@@ -77,7 +77,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // dashboard's roster view. Keyed by uid (matching firestore.rules) so the
   // writes actually succeed instead of silently failing on a permission
   // mismatch. Never grants any privilege by itself.
-  const syncMemberRecord = async (uid: string, userEmail: string, displayName: string, source: string) => {
+  const syncMemberRecord = async (uid: string, userEmail: string, displayName: string, source: string, isAdmin: boolean) => {
     try {
       const nowIso = new Date().toISOString();
       await setDoc(
@@ -89,7 +89,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           name: displayName,
           lastLogin: nowIso,
           source,
-          isAdmin: isChiefAdminEmail(userEmail),
+          isAdmin,
         },
         { merge: true }
       );
@@ -106,9 +106,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const finishSignIn = async (fbUser: NonNullable<typeof auth.currentUser>, displayName: string, source: string) => {
     const userEmail = fbUser.email || '';
-    const isAdmin = await refreshAdminStatus(fbUser);
-    await syncMemberRecord(fbUser.uid, userEmail, displayName, source);
-    const user: User = { email: userEmail, name: displayName, isAdmin, uid: fbUser.uid };
+    const { isAdmin, isChiefAdmin } = await refreshAdminStatus(fbUser);
+    await syncMemberRecord(fbUser.uid, userEmail, displayName, source, isAdmin);
+    const user: User = { email: userEmail, name: displayName, isAdmin, isChiefAdmin, uid: fbUser.uid };
     setStatusMessage(`Welcome${displayName ? ', ' + displayName : ''}!`);
     setTimeout(() => {
       onSuccess(user);

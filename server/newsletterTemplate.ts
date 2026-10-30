@@ -17,6 +17,21 @@ export interface NewsletterStory {
   subSector?: string;
 }
 
+/**
+ * Minimal HTML-escaping for untrusted (scraped, then bot-paraphrased) text
+ * before it's embedded in a raw HTML string — kept in sync with the
+ * identical function in src/utils/newsletterTemplate.ts. Safe to use for
+ * both text content and attribute values.
+ */
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export const SECTOR_LIST = [
   'World',
   'Politics',
@@ -109,7 +124,7 @@ export function generateElegantNewsletterHtml(
               <tr>
                 <td style="padding-bottom: 6px;">
                   <span style="display: inline-block; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: ${catStyle.bg}; color: ${catStyle.text}; padding: 3px 8px; border-radius: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                    ${catStyle.icon} LATEST IN ${story.category.toUpperCase()}
+                    ${catStyle.icon} LATEST IN ${escapeHtml(story.category.toUpperCase())}
                   </span>
                   ${
                     story.date
@@ -123,14 +138,14 @@ export function generateElegantNewsletterHtml(
               <tr>
                 <td style="padding-bottom: 6px;">
                   <a href="${storyUrl}" style="text-decoration: none; font-size: 17px; font-weight: 700; color: #0f172a; line-height: 1.35; font-family: 'Georgia', serif; display: block;">
-                    ${story.title}
+                    ${escapeHtml(story.title)}
                   </a>
                 </td>
               </tr>
               <tr>
                 <td>
                   <p style="margin: 0 0 8px; font-size: 14px; line-height: 1.5; color: #475569; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                    ${story.summary || ''}
+                    ${escapeHtml(story.summary || '')}
                   </p>
                   <a href="${storyUrl}" style="color: #0284c7; font-size: 13px; font-weight: 700; text-decoration: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
                     Read full report &rarr;
@@ -213,7 +228,7 @@ export function generateElegantNewsletterHtml(
                 <tr>
                   <td style="padding-bottom: 8px;">
                     <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #0284c7; background-color: #e0f2fe; padding: 3px 8px; border-radius: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                      ★ TOP FEATURED HEADLINE &bull; ${leadStory.category.toUpperCase()}
+                      ★ TOP FEATURED HEADLINE &bull; ${escapeHtml(leadStory.category.toUpperCase())}
                     </span>
                   </td>
                 </tr>
@@ -224,7 +239,7 @@ export function generateElegantNewsletterHtml(
                 <tr>
                   <td style="padding-bottom: 16px;">
                     <a href="${leadStory.id ? `${siteUrl}/#story-${leadStory.id}` : siteUrl}" style="text-decoration: none;">
-                      <img src="${leadStory.image}" alt="${leadStory.title}" width="556" style="width: 100%; max-height: 280px; object-fit: cover; border-radius: 8px; display: block; border: 1px solid #e2e8f0;" />
+                      <img src="${escapeHtml(leadStory.image)}" alt="${escapeHtml(leadStory.title)}" width="556" style="width: 100%; max-height: 280px; object-fit: cover; border-radius: 8px; display: block; border: 1px solid #e2e8f0;" />
                     </a>
                   </td>
                 </tr>
@@ -235,7 +250,7 @@ export function generateElegantNewsletterHtml(
                 <tr>
                   <td style="padding-bottom: 10px;">
                     <a href="${leadStory.id ? `${siteUrl}/#story-${leadStory.id}` : siteUrl}" style="text-decoration: none; font-size: 22px; font-weight: 800; color: #0f172a; line-height: 1.35; font-family: 'Georgia', serif; display: block;">
-                      ${leadStory.title}
+                      ${escapeHtml(leadStory.title)}
                     </a>
                   </td>
                 </tr>
@@ -243,7 +258,7 @@ export function generateElegantNewsletterHtml(
                 <tr>
                   <td style="padding-bottom: 18px;">
                     <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #334155; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-                      ${leadStory.summary || ''}
+                      ${escapeHtml(leadStory.summary || '')}
                     </p>
                   </td>
                 </tr>
@@ -321,9 +336,10 @@ export function generateElegantNewsletterHtml(
               </p>
               <p style="margin: 0; color: #64748b; font-size: 11px;">
                 You are receiving this morning briefing because you enrolled at <a href="${siteUrl}" style="color: #38bdf8; text-decoration: none;">Viralhoods.com</a>.<br>
-                ${options?.recipientEmail ? `Sent to: ${options.recipientEmail} &bull; ` : ''}
+                ${options?.recipientEmail ? `Sent to: ${escapeHtml(options.recipientEmail)} &bull; ` : ''}
                 <a href="${siteUrl}/#all" style="color: #38bdf8; text-decoration: none;">Home Feed</a> &bull;
-                <a href="${siteUrl}/#about" style="color: #38bdf8; text-decoration: none;">About</a>
+                <a href="${siteUrl}/#about" style="color: #38bdf8; text-decoration: none;">About</a> &bull;
+                <a href="${siteUrl}/#unsubscribe${options?.recipientEmail ? `?email=${encodeURIComponent(options.recipientEmail)}` : ''}" style="color: #38bdf8; text-decoration: none;">Unsubscribe</a>
               </p>
             </td>
           </tr>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Mail, Laptop, Smartphone, ExternalLink, Copy, Check, Share2, Sparkles, BookOpen } from 'lucide-react';
+import { X, Mail, Laptop, Smartphone, ExternalLink, Copy, Check, Share2, Sparkles, BookOpen, UserX } from 'lucide-react';
 import { NewsItem } from '../types';
 import {
   selectLatestStoryPerSector,
@@ -14,6 +14,11 @@ interface NewsletterModalProps {
   stories: NewsItem[];
   onOpenStory?: (id: string) => void;
   onSubscribe?: (email: string) => Promise<boolean> | boolean;
+  onUnsubscribe?: (email: string) => Promise<boolean> | boolean;
+  // Set when the modal is opened from an email's "Unsubscribe" link
+  // (#unsubscribe?email=...) so the unsubscribe form is front and center
+  // instead of something the reader has to go looking for.
+  initialUnsubscribeEmail?: string;
 }
 
 export const NewsletterModal: React.FC<NewsletterModalProps> = ({
@@ -22,12 +27,25 @@ export const NewsletterModal: React.FC<NewsletterModalProps> = ({
   stories,
   onOpenStory,
   onSubscribe,
+  onUnsubscribe,
+  initialUnsubscribeEmail,
 }) => {
   const [device, setDevice] = useState<'desktop' | 'mobile'>('desktop');
   const [copiedLink, setCopiedLink] = useState(false);
   const [subscribeEmail, setSubscribeEmail] = useState('');
   const [subscribeStatus, setSubscribeStatus] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'reading' | 'sectors'>('reading');
+  const [showUnsubscribe, setShowUnsubscribe] = useState(false);
+  const [unsubscribeEmail, setUnsubscribeEmail] = useState('');
+  const [unsubscribeStatus, setUnsubscribeStatus] = useState<string | null>(null);
+  const [isUnsubscribing, setIsUnsubscribing] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && initialUnsubscribeEmail) {
+      setShowUnsubscribe(true);
+      setUnsubscribeEmail(initialUnsubscribeEmail);
+    }
+  }, [isOpen, initialUnsubscribeEmail]);
 
   // Filter so we strictly display only the latest story from each of the 10 sectors
   const sectorStories = useMemo(() => {
@@ -75,6 +93,22 @@ export const NewsletterModal: React.FC<NewsletterModalProps> = ({
         setSubscribeStatus('✓ Subscribed! Welcome to the Daily Dispatch.');
         setTimeout(() => setSubscribeStatus(null), 5000);
       }
+    }
+  };
+
+  const handleUnsubscribeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!unsubscribeEmail.trim() || !unsubscribeEmail.includes('@') || !onUnsubscribe) return;
+    setIsUnsubscribing(true);
+    try {
+      const ok = await onUnsubscribe(unsubscribeEmail.trim().toLowerCase());
+      setUnsubscribeStatus(
+        ok !== false ? 'You\u2019re unsubscribed \u2014 sorry to see you go.' : 'Something went wrong. Please try again.'
+      );
+    } catch {
+      setUnsubscribeStatus('Something went wrong. Please try again.');
+    } finally {
+      setIsUnsubscribing(false);
     }
   };
 
@@ -383,6 +417,15 @@ export const NewsletterModal: React.FC<NewsletterModalProps> = ({
               <iframe
                 title="Viralhoods Daily Morning Dispatch"
                 srcDoc={newsletterHtml}
+                // This content is bot-generated from scraped sources and
+                // escaped before it reaches this template (see
+                // utils/newsletterTemplate.ts), but an empty `sandbox`
+                // attribute is cheap, meaningful defense-in-depth: without
+                // it, srcDoc content runs in the SAME origin as the rest of
+                // the app, so any script that did slip through would have
+                // full access to this page's session. This is a read-only
+                // preview — it never needs to execute anything.
+                sandbox=""
                 style={{
                   width: '100%',
                   height: '72vh',
@@ -540,45 +583,107 @@ export const NewsletterModal: React.FC<NewsletterModalProps> = ({
             📬 <strong>Automated Delivery:</strong> Compiled daily across all 10 sectors at 12:00 AM UTC.
           </div>
 
-          <form
-            onSubmit={handleSubscribeSubmit}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
-          >
-            <input
-              type="email"
-              placeholder="Enter email for daily delivery..."
-              value={subscribeEmail}
-              onChange={(e) => setSubscribeEmail(e.target.value)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid var(--line, #cbd5e1)',
-                background: 'var(--bg, #ffffff)',
-                color: 'var(--fg, #0f172a)',
-                fontSize: '0.82rem',
-                minWidth: '220px',
-              }}
-            />
-            <button
-              type="submit"
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                background: 'var(--blue, #0284c7)',
-                color: '#ffffff',
-                border: 'none',
-                fontWeight: 700,
-                fontSize: '0.82rem',
-                cursor: 'pointer',
-              }}
+          {showUnsubscribe ? (
+            <form
+              onSubmit={handleUnsubscribeSubmit}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
             >
-              Subscribe Free
-            </button>
-          </form>
+              <input
+                type="email"
+                placeholder="Email to unsubscribe..."
+                value={unsubscribeEmail}
+                onChange={(e) => setUnsubscribeEmail(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--line, #cbd5e1)',
+                  background: 'var(--bg, #ffffff)',
+                  color: 'var(--fg, #0f172a)',
+                  fontSize: '0.82rem',
+                  minWidth: '220px',
+                }}
+              />
+              <button
+                type="submit"
+                disabled={isUnsubscribing}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  background: '#dc2626',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: isUnsubscribing ? 'default' : 'pointer',
+                  opacity: isUnsubscribing ? 0.7 : 1,
+                }}
+              >
+                <UserX size={14} /> {isUnsubscribing ? 'Unsubscribing...' : 'Unsubscribe'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUnsubscribe(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--fg-muted)', fontSize: '0.78rem', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Never mind, keep my subscription
+              </button>
+            </form>
+          ) : (
+            <form
+              onSubmit={handleSubscribeSubmit}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}
+            >
+              <input
+                type="email"
+                placeholder="Enter email for daily delivery..."
+                value={subscribeEmail}
+                onChange={(e) => setSubscribeEmail(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--line, #cbd5e1)',
+                  background: 'var(--bg, #ffffff)',
+                  color: 'var(--fg, #0f172a)',
+                  fontSize: '0.82rem',
+                  minWidth: '220px',
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  background: 'var(--blue, #0284c7)',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Subscribe Free
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUnsubscribe(true)}
+                style={{ background: 'none', border: 'none', color: 'var(--fg-muted)', fontSize: '0.78rem', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Unsubscribe instead
+              </button>
+            </form>
+          )}
 
           {subscribeStatus && (
             <div style={{ width: '100%', fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, textAlign: 'right' }}>
               {subscribeStatus}
+            </div>
+          )}
+          {unsubscribeStatus && (
+            <div style={{ width: '100%', fontSize: '0.8rem', color: unsubscribeStatus.startsWith('You') ? '#16a34a' : '#dc2626', fontWeight: 700, textAlign: 'right' }}>
+              {unsubscribeStatus}
             </div>
           )}
         </div>

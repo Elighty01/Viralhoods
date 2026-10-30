@@ -45,6 +45,7 @@ interface FeedViewProps {
   onNavigateCommunity: () => void;
   onSelectCategory: (category: string) => void;
   onOpenNewsletter?: () => void;
+  onOpenAdContact: () => void;
 }
 
 export type SearchEngineMode = 'viralhoods' | 'google' | 'google-news';
@@ -68,6 +69,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
   onNavigateCommunity,
   onSelectCategory,
   onOpenNewsletter,
+  onOpenAdContact,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchTab, setSearchTab] = useState<'all' | 'local' | 'google'>('all');
@@ -1148,6 +1150,7 @@ export const FeedView: React.FC<FeedViewProps> = ({
                       onOpenStory={onOpenStory}
                       onSelectCategory={onSelectCategory}
                       onNavigateCommunity={onNavigateCommunity}
+                      onOpenAdContact={onOpenAdContact}
                     />
                   </div>
                 )}

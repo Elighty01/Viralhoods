@@ -5,12 +5,10 @@ import {
   Subscriber,
   CATEGORIES,
   Category,
-  CHIEF_ADMIN_EMAIL,
-  CHIEF_ADMIN_EMAILS,
-  isChiefAdminEmail,
   AdminMember,
   RegisteredMemberRecord,
   CommunityPost,
+  AdInquiry,
 } from '../types';
 import {
   getSubscribers,
@@ -25,7 +23,7 @@ import { generateOriginalStory } from '../utils/articleGenerator';
 import { runClientSideScraper } from '../services/scraperService';
 import { db, functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
-import { doc, setDoc, getDoc, deleteDoc, collection, getDocs, query, orderBy, limit as fsLimit } from 'firebase/firestore';
+import { doc, setDoc, getDoc, updateDoc, deleteDoc, collection, getDocs, query, orderBy, limit as fsLimit } from 'firebase/firestore';
 import { deletePost as deleteCommunityPost } from '../utils/community';
 import { generateElegantNewsletterHtml, selectLatestStoryPerSector } from '../utils/newsletterTemplate';
 import {
@@ -46,6 +44,7 @@ import {
   Image as ImageIcon,
   ChevronDown,
   ChevronUp,
+  Megaphone,
   ChevronLeft,
   ChevronRight,
   Shield,
@@ -130,19 +129,32 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onPreviewStory,
   onRefreshData,
 }) => {
-  // Real authorization: `isAdmin` is a Firebase custom claim, verified
-  // server-side on sign-in (see firebase.ts `refreshAdminStatus`) and
-  // re-checked by every Firestore write via security rules. Any admin
+  // Real authorization: `isAdmin`/`isChiefAdmin` are Firebase custom claims,
+  // verified server-side on sign-in (see firebase.ts `refreshAdminStatus`)
+  // and re-checked by every Firestore write via security rules. Any admin
   // (chief or appointed) can open the dashboard; only the chief admin can
-  // appoint or remove other admins (see `isChiefAdmin` below).
-  const isChiefAdmin = Boolean(isChiefAdminEmail(currentUser?.email));
+  // appoint or remove other admins.
+  const isChiefAdmin = Boolean(currentUser?.isChiefAdmin);
   const isAuthorized = Boolean(currentUser?.isAdmin || isChiefAdmin);
 
   const [stealthMode, setStealthMode] = useState<'hidden' | 'masked'>(getChiefAdminStealthMode());
 
   const [activeTab, setActiveTab] = useState<
-    'stats' | 'bot' | 'stories' | 'subscribers' | 'newsletter' | 'roles' | 'users' | 'schedule' | 'community'
+    | 'stats'
+    | 'bot'
+    | 'stories'
+    | 'subscribers'
+    | 'newsletter'
+    | 'roles'
+    | 'users'
+    | 'schedule'
+    | 'community'
+    | 'adInquiries'
   >('stats');
+
+  // "Advertise With Us" contact inbox — Chief Admin only (see firestore.rules).
+  const [adInquiries, setAdInquiries] = useState<AdInquiry[]>([]);
+  const [isLoadingAdInquiries, setIsLoadingAdInquiries] = useState(false);
 
   // Registered Users & Login Database state (Drops all registrations and logins for Chief Admin)
   const [registeredMembers, setRegisteredMembers] = useState<RegisteredMemberRecord[]>([]);
@@ -176,7 +188,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
           lastLogin: data.lastLogin || data.registeredAt || new Date().toISOString(),
           loginCount: data.loginCount || 1,
           source: data.source || 'registration',
-          isAdmin: Boolean(data.isAdmin || isChiefAdminEmail(data.email || data.usernameOrEmail)),
+          isAdmin: Boolean(data.isAdmin),
           device: data.device || 'Desktop',
           browser: data.browser || 'Browser',
           location: data.location || 'United States',
@@ -345,6 +357,41 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
+  // "Advertise With Us" contact inbox — read is Chief-Admin-only at the
+  // Firestore rules level too, so this is defense in depth, not the only
+  // gate (see firestore.rules match /ad_inquiries/{inquiryId}).
+  const fetchAdInquiries = async () => {
+    if (!isChiefAdmin) return;
+    setIsLoadingAdInquiries(true);
+    try {
+      const q = query(collection(db, 'ad_inquiries'), orderBy('createdAt', 'desc'), fsLimit(200));
+      const snap = await getDocs(q);
+      setAdInquiries(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AdInquiry, 'id'>) })));
+    } catch (err) {
+      console.warn('fetchAdInquiries error:', err);
+    } finally {
+      setIsLoadingAdInquiries(false);
+    }
+  };
+
+  const markAdInquiryRead = async (inquiryId: string, read: boolean) => {
+    setAdInquiries((prev) => prev.map((i) => (i.id === inquiryId ? { ...i, read } : i)));
+    try {
+      await updateDoc(doc(db, 'ad_inquiries', inquiryId), { read });
+    } catch (err) {
+      console.warn('markAdInquiryRead error:', err);
+    }
+  };
+
+  const deleteAdInquiry = async (inquiryId: string) => {
+    setAdInquiries((prev) => prev.filter((i) => i.id !== inquiryId));
+    try {
+      await deleteDoc(doc(db, 'ad_inquiries', inquiryId));
+    } catch (err) {
+      console.warn('deleteAdInquiry error:', err);
+    }
+  };
+
   useEffect(() => {
     loadAnalytics();
     if (isAuthorized) {
@@ -354,6 +401,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
         fetchSubscribers();
       } else if (activeTab === 'newsletter') {
         fetchNewsletterDetails();
+      } else if (activeTab === 'adInquiries') {
+        fetchAdInquiries();
       }
     }
   }, [activeTab, isAuthorized]);
@@ -480,9 +529,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     }
   };
 
-  // GitHub Actions Workflow Dispatcher State
-  const [repoInput, setRepoInput] = useState('');
-  const [tokenInput, setTokenInput] = useState('');
+  // GitHub Actions Workflow Dispatcher State — the dispatch itself now runs
+  // server-side (see dispatchGitHubWorkflow in functions/src/index.ts); no
+  // token or repo name is ever entered or stored in the browser anymore.
   const [selectedWorkflow, setSelectedWorkflow] = useState<'deploy.yml' | 'news.yml'>('deploy.yml');
   const [githubDispatchMsg, setGithubDispatchMsg] = useState('');
   const [isDispatching, setIsDispatching] = useState(false);
@@ -499,7 +548,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         const email = (data.email || (d.id.includes('@') ? d.id : '')).trim().toLowerCase();
         if (!email) return;
         const existing = map.get(email);
-        const isChief = isChiefAdminEmail(email) || Boolean(data.isChief);
+        const isChief = Boolean(data.isChief);
         if (!existing || isChief) {
           map.set(email, {
             email,
@@ -575,12 +624,6 @@ export const AdminView: React.FC<AdminViewProps> = ({
       fetchAdminRoster();
       fetchRegisteredMembers();
       fetchCommunityReports();
-      try {
-        setRepoInput(localStorage.getItem('viralhoods_gh_repo') || 'Elighty01/Viralhoods');
-        setTokenInput(sessionStorage.getItem('viralhoods_gh_token') || '');
-      } catch {
-        // ignore
-      }
     }
   }, [isAuthorized, currentUser?.email, stealthMode]);
 
@@ -727,7 +770,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
         name: targetName || targetEmail.split('@')[0],
         uid: targetUid || '',
         isChief: false,
-        addedBy: currentUser?.email || 'tobionlyn@gmail.com',
+        addedBy: currentUser?.email || 'Chief Administrator',
         addedAt: new Date().toISOString(),
       };
 
@@ -824,20 +867,21 @@ export const AdminView: React.FC<AdminViewProps> = ({
     if (!isChiefAdmin) return;
     try {
       const snap = await getDocs(collection(db, 'admins'));
-      const nonChiefDocs = snap.docs.filter((d) => {
-        const data = d.data();
-        return !isChiefAdminEmail(data.email) && !data.isChief;
-      });
+      const nonChiefDocs = snap.docs.filter((d) => !d.data().isChief);
       for (const d of nonChiefDocs) {
         await deleteDoc(d.ref);
       }
 
-      // Also reset in registered_users
+      // Also reset in registered_users. There's no `isChief` field on these
+      // records (that's an /admins-collection concept) — the caller of this
+      // function is gated to the chief admin themselves (see the guard
+      // above), so "not me" is the correct way to identify everyone else.
+      const currentUserEmail = currentUser?.email?.trim().toLowerCase();
       try {
         const usersSnap = await getDocs(collection(db, 'registered_users'));
         for (const u of usersSnap.docs) {
           const udata = u.data();
-          if (!isChiefAdminEmail(udata.email) && udata.isAdmin) {
+          if (udata.email?.trim().toLowerCase() !== currentUserEmail && udata.isAdmin) {
             await setDoc(u.ref, { isAdmin: false }, { merge: true });
           }
         }
@@ -1178,56 +1222,18 @@ export const AdminView: React.FC<AdminViewProps> = ({
 
   // Trigger GitHub Actions workflow remotely
   const handleRunGitHubWorkflow = async () => {
-    const cleanRepo = repoInput.trim();
-    const token = tokenInput.replace(/[^\x21-\x7e]/g, '');
-
-    if (!cleanRepo || !token) {
-      setGithubDispatchMsg('Please enter repository name and personal access token.');
-      return;
-    }
-
-    try {
-      // Repo name isn't sensitive and is kept for convenience; the PAT is
-      // kept in sessionStorage instead of localStorage so it's cleared when
-      // this tab closes rather than lingering on the device indefinitely.
-      localStorage.setItem('viralhoods_gh_repo', cleanRepo);
-      sessionStorage.setItem('viralhoods_gh_token', token);
-    } catch {
-      // ignore
-    }
-
     setGithubDispatchMsg('Triggering GitHub Actions workflow...');
     setIsDispatching(true);
-
     try {
-      const headers: HeadersInit = {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-      };
-      const api = `https://api.github.com/repos/${cleanRepo}`;
-      const info = await fetch(api, { headers });
-      if (!info.ok) {
-        setGithubDispatchMsg(`GitHub rejected: ${info.statusText} (${info.status})`);
-        setIsDispatching(false);
-        return;
-      }
-      const data = await info.json();
-      const br = data.default_branch || 'main';
-
-      const res = await fetch(`${api}/actions/workflows/${selectedWorkflow}/dispatches`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ref: br }),
-      });
-
-      if (res.status === 204) {
-        const workflowName = selectedWorkflow === 'deploy.yml' ? 'Deploy to GitHub Pages' : 'Automated News Scraper';
-        setGithubDispatchMsg(`✓ "${workflowName}" dispatched successfully! Check the Actions tab in your repository.`);
-      } else {
-        setGithubDispatchMsg(`GitHub responded with status: ${res.status}`);
-      }
+      // The GitHub PAT lives only in Secret Manager now and is used only
+      // inside this Cloud Function — the browser never sees it or stores
+      // it. See dispatchGitHubWorkflow in functions/src/index.ts.
+      const dispatchFn = httpsCallable(functions, 'dispatchGitHubWorkflow');
+      await dispatchFn({ workflow: selectedWorkflow });
+      const workflowName = selectedWorkflow === 'deploy.yml' ? 'Deploy' : 'Automated News Scraper';
+      setGithubDispatchMsg(`✓ "${workflowName}" dispatched successfully! Check the Actions tab in your repository.`);
     } catch (e: any) {
-      setGithubDispatchMsg(`Dispatch error: ${e?.message || 'Network request failed'}`);
+      setGithubDispatchMsg(`Dispatch error: ${e?.message || 'Request failed'}`);
     } finally {
       setIsDispatching(false);
     }
@@ -1513,6 +1519,29 @@ export const AdminView: React.FC<AdminViewProps> = ({
         >
           <Users size={16} /> Subscribers ({subscribers.length})
         </button>
+
+        {isChiefAdmin && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('adInquiries')}
+            style={{
+              padding: '12px 18px',
+              border: 'none',
+              background: 'transparent',
+              borderBottom: activeTab === 'adInquiries' ? '2px solid var(--blue)' : '2px solid transparent',
+              color: activeTab === 'adInquiries' ? 'var(--fg)' : 'var(--fg-muted)',
+              fontWeight: activeTab === 'adInquiries' ? 800 : 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '0.94rem',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Megaphone size={16} /> Ad Inquiries ({adInquiries.filter((i) => !i.read).length})
+          </button>
+        )}
 
         <button
           type="button"
@@ -3556,7 +3585,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {isChiefAdmin ? 'Chief Administrator' : 'Dispatch Frequency'}
               </div>
               <div style={{ fontSize: isChiefAdmin ? '1.2rem' : '1.35rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
-                {isChiefAdmin ? 'tobionlyn@gmail.com' : 'Daily 12:00 AM UTC'}
+                {isChiefAdmin ? currentUser?.email || 'Chief Administrator' : 'Daily 12:00 AM UTC'}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, marginTop: '2px' }}>
                 {isChiefAdmin ? '👑 Full Subscriber Authority' : '✓ Automated Newsletter Delivery'}
@@ -3752,6 +3781,125 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: AD INQUIRIES — Chief Admin only. The Sidebar widget + Footer
+          "Contact Us for Ads" button both write here; firestore.rules
+          restricts reading this collection to the Chief Administrator. */}
+      {activeTab === 'adInquiries' && isChiefAdmin && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--line)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '20px 24px',
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'var(--blue-tint)',
+                color: 'var(--blue)',
+                padding: '4px 10px',
+                borderRadius: '999px',
+                fontSize: '0.7rem',
+                fontWeight: 800,
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                marginBottom: '10px',
+              }}
+            >
+              <Megaphone size={12} /> Chief Admin Only
+            </span>
+            <h2 style={{ margin: '0 0 6px', fontSize: '1.2rem', fontWeight: 800 }}>Ad Inquiries</h2>
+            <p style={{ margin: 0, color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
+              Messages sent from the "Contact Us for Ads" card in the sidebar and footer. Only you can see these —
+              everyone else, including other admins, is locked out at the database level.
+            </p>
+          </div>
+
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            {isLoadingAdInquiries ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-muted)' }}>
+                <RefreshCw size={20} className="spin-icon" />
+                <p style={{ marginTop: '8px' }}>Loading inquiries...</p>
+              </div>
+            ) : adInquiries.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--fg-muted)' }}>
+                <Megaphone size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                <p style={{ margin: 0 }}>No ad inquiries yet.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {adInquiries.map((inquiry) => (
+                  <div
+                    key={inquiry.id}
+                    style={{
+                      padding: '16px 24px',
+                      borderBottom: '1px solid var(--line)',
+                      background: inquiry.read ? 'transparent' : 'var(--blue-tint)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                          {inquiry.name ? `${inquiry.name} ` : ''}
+                          <a href={`mailto:${inquiry.email}`} style={{ color: 'var(--blue)', fontWeight: 700 }}>
+                            &lt;{inquiry.email}&gt;
+                          </a>
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--fg-muted)' }}>
+                          {new Date(inquiry.createdAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => markAdInquiryRead(inquiry.id, !inquiry.read)}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--line)',
+                            background: 'var(--bg-subtle)',
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {inquiry.read ? 'Mark unread' : 'Mark read'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Delete this inquiry?')) deleteAdInquiry(inquiry.id);
+                          }}
+                          style={{
+                            padding: '5px 8px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--line)',
+                            background: 'var(--bg-subtle)',
+                            color: '#dc2626',
+                            cursor: 'pointer',
+                          }}
+                          title="Delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.86rem', whiteSpace: 'pre-wrap', color: 'var(--fg)' }}>{inquiry.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -4269,6 +4417,12 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     newsletterPreviewHtml ||
                     generateElegantNewsletterHtml(allStories)
                   }
+                  // Read-only preview of bot-generated, now HTML-escaped
+                  // content (see utils/newsletterTemplate.ts) — sandboxed
+                  // so srcDoc content can't run with this (admin!) session's
+                  // same-origin privileges even if something slipped past
+                  // escaping.
+                  sandbox=""
                   style={{
                     width: '100%',
                     height: '650px',
@@ -4428,7 +4582,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 {isChiefAdmin ? 'Chief Administrator' : 'Authentication Realm'}
               </div>
               <div style={{ fontSize: isChiefAdmin ? '1.2rem' : '1.35rem', fontWeight: 800, color: 'var(--sun)', marginTop: '4px' }}>
-                {isChiefAdmin ? 'tobionlyn@gmail.com' : 'Google Identity & MFA'}
+                {isChiefAdmin ? currentUser?.email || 'Chief Administrator' : 'Google Identity & MFA'}
               </div>
               <div style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 700, marginTop: '2px' }}>
                 {isChiefAdmin ? '👑 Full Authority' : '✓ End-to-End Encrypted'}
@@ -4795,7 +4949,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                     </span>
                   </div>
                   <h3 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800 }}>
-                    {currentUser?.email || CHIEF_ADMIN_EMAIL}
+                    {currentUser?.email || 'Chief Administrator'}
                   </h3>
                   <p style={{ margin: '4px 0 0', color: 'var(--fg-muted)', fontSize: '0.88rem' }}>
                     Primary owner of Viralhoods. Has exclusive authority to appoint staff administrators and manage role permissions.
@@ -4976,10 +5130,13 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </form>
 
                 {(() => {
+                  // Exclude the signed-in chief admin's own email from the
+                  // "who could I appoint" suggestions below.
+                  const selfEmail = currentUser?.email?.trim().toLowerCase();
                   const candidateEmails = Array.from(
                     new Set([
-                      ...registeredMembers.filter((m) => !m.isAdmin && !isChiefAdminEmail(m.email)).map((m) => m.email || m.usernameOrEmail),
-                      ...subscribers.filter((s) => !isChiefAdminEmail(s.email)).map((s) => s.email),
+                      ...registeredMembers.filter((m) => !m.isAdmin && m.email?.trim().toLowerCase() !== selfEmail).map((m) => m.email || m.usernameOrEmail),
+                      ...subscribers.filter((s) => s.email?.trim().toLowerCase() !== selfEmail).map((s) => s.email),
                     ])
                   ).filter((e) => e && e.includes('@')).slice(0, 8);
 
@@ -5091,7 +5248,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 </thead>
                 <tbody>
                   {adminMembers.map((member, idx) => {
-                    const isChief = isChiefAdminEmail(member.email) || Boolean(member.isChief);
+                    const isChief = Boolean(member.isChief);
                     // Chief status is only visible to the Chief Administrator!
                     const displayAsChief = isChiefAdmin && isChief;
 
@@ -5262,47 +5419,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
           </div>
 
           <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '0 0 12px' }}>
-            Trigger Remote GitHub Actions Workflow (Advanced)
+            Trigger Remote GitHub Actions Workflow
           </h3>
           <p style={{ color: 'var(--fg-muted)', fontSize: '0.88rem', margin: '0 0 10px' }}>
-            For a news scrape, use the <strong>"⚡ Run Full Scrape Now"</strong> button on the Bot tab instead — it
-            runs server-side and needs no token. This section is for dispatching the GitHub Pages{' '}
-            <strong>deploy</strong> workflow, which does need a token because it has to call the GitHub API directly.
+            For a news scrape, the <strong>"⚡ Run Full Scrape Now"</strong> button on the Bot tab is still the
+            faster option — it runs server-side directly, with no GitHub round-trip at all.
           </p>
           <p style={{ color: 'var(--fg-muted)', fontSize: '0.8rem', margin: '0 0 16px' }}>
-            Your token is kept only for this browser tab (it clears when you close it) and is never sent anywhere
-            except the GitHub API. Use a fine-grained token scoped to just this repository's Actions permission.
+            This dispatches the selected workflow via a Cloud Function (<code>dispatchGitHubWorkflow</code>) — the
+            GitHub access token lives only in Secret Manager server-side and is never sent to or stored in this
+            browser.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-            <div>
-              <label htmlFor="repo-input" style={{ fontSize: '0.84rem', fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                GitHub Repository
-              </label>
-              <input
-                id="repo-input"
-                type="text"
-                className="form-input"
-                placeholder="Elighty01/Viralhoods"
-                value={repoInput}
-                onChange={(e) => setRepoInput(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <label htmlFor="token-input" style={{ fontSize: '0.84rem', fontWeight: 700, display: 'block', marginBottom: '6px' }}>
-                GitHub Personal Access Token (PAT)
-              </label>
-              <input
-                id="token-input"
-                type="password"
-                className="form-input"
-                placeholder="ghp_••••••••••••••••••••"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-              />
-            </div>
-
             <div>
               <label htmlFor="workflow-select" style={{ fontSize: '0.84rem', fontWeight: 700, display: 'block', marginBottom: '6px' }}>
                 Select Workflow to Run
@@ -5314,7 +5443,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
                 onChange={(e) => setSelectedWorkflow(e.target.value as 'deploy.yml' | 'news.yml')}
                 style={{ cursor: 'pointer' }}
               >
-                <option value="deploy.yml">🚀 Deploy to GitHub Pages (deploy.yml)</option>
+                <option value="deploy.yml">🚀 Deploy Site (deploy.yml)</option>
                 <option value="news.yml">📰 Run Automated News Scraper (news.yml)</option>
               </select>
             </div>

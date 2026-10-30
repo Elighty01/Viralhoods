@@ -175,12 +175,30 @@ export async function resolveLocation(): Promise<{ country: string; city: string
   }
 }
 
+// A basic client-side throttle on top of the Firestore rules' structural
+// validation (see firestore.rules match /analytics_visits) — this doesn't
+// stop a scripted attacker hitting the Firestore REST API directly (that
+// needs App Check or a Cloud Function proxy), but it does stop a runaway
+// loop or re-render bug in this app from self-inflicting a write storm, and
+// caps the realistic cost of any one browser tab regardless of cause.
+const ANALYTICS_MIN_INTERVAL_MS = 1500;
+const ANALYTICS_MAX_PER_SESSION = 300;
+let lastTrackedAt = 0;
+let trackedThisSession = 0;
+
 // 3. Track Page Visit
 export async function trackPageVisit(
   pageName: string,
   path: string = window.location.hash || window.location.pathname,
   metadata?: { storyId?: string; storyTitle?: string; category?: string }
 ): Promise<void> {
+  const now = Date.now();
+  if (now - lastTrackedAt < ANALYTICS_MIN_INTERVAL_MS || trackedThisSession >= ANALYTICS_MAX_PER_SESSION) {
+    return;
+  }
+  lastTrackedAt = now;
+  trackedThisSession += 1;
+
   try {
     const vid = getOrCreateVisitorId();
     const sid = getOrCreateSessionId();
