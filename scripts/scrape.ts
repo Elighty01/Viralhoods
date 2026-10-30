@@ -368,11 +368,17 @@ Task:
 Output MUST be valid JSON in exactly this shape, with no markdown fences:
 {"modifiedTitle": "string", "takeaways": ["string","string","string","string"], "content": ["paragraph1","paragraph2","paragraph3","paragraph4","paragraph5"], "whyItMatters": "string", "whatNext": "string"}`;
 
-      const res = await aiClient.models.generateContent({
-        model,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' },
-      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini API timeout after 5s')), 5000)
+      );
+      const res: any = await Promise.race([
+        aiClient.models.generateContent({
+          model,
+          contents: prompt,
+          config: { responseMimeType: 'application/json' },
+        }),
+        timeoutPromise,
+      ]);
 
       const parsed = JSON.parse(res.text || '{}');
       if (parsed.modifiedTitle && Array.isArray(parsed.takeaways) && Array.isArray(parsed.content) && parsed.content.length >= 3) {
@@ -611,6 +617,45 @@ export async function runScraper(targetCategory?: string) {
     `Scraper completed: ${scrapedNewItems.length} items scraped this run, ${removedCount} duplicate/stale items removed, ` +
       `catalog now ${finalItems.length} stories across 10 sectors + 4 Entertainment sub-pages.`
   );
+
+  // Synchronize newly scraped stories directly into Cloud Firestore
+  try {
+    const { getFirestoreDb } = await import('../server/auth');
+    const firestore = getFirestoreDb();
+    if (firestore && scrapedNewItems.length > 0) {
+      const batch = firestore.batch();
+      let ops = 0;
+      for (const item of scrapedNewItems.slice(0, 100)) {
+        const ref = firestore.collection('stories').doc(item.id);
+        batch.set(ref, item, { merge: true });
+        ops++;
+      }
+      if (ops > 0) {
+        const commitPromise = batch.commit();
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
+        await Promise.race([commitPromise, timeoutPromise]);
+        console.log(`[Sync] Synchronized ${ops} stories to Cloud Firestore.`);
+      }
+      try {
+        const statusPromise = firestore.collection('system').doc('bot_status').set(
+          {
+            lastRunAt: new Date().toISOString(),
+            totalScraped: scrapedNewItems.length,
+            totalStories: finalItems.length,
+            status: 'success',
+            mode: 'scripts_scrape_engine',
+          },
+          { merge: true }
+        );
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
+        await Promise.race([statusPromise, timeoutPromise]);
+      } catch {
+        // non-blocking
+      }
+    }
+  } catch (syncErr) {
+    // Non-blocking in environments without active Firestore Admin credentials
+  }
 
   // Automated Newsletter Compilation: compile and record/send newsletter for all subscribers
   try {

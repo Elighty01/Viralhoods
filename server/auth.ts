@@ -2,8 +2,10 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
+import { getFirestore } from 'firebase-admin/firestore';
 import nodemailer from 'nodemailer';
 
+export const FIRESTORE_DATABASE_ID = 'ai-studio-viralhoods-ee67cf6a-c31b-45be-a498-8d82049f7742';
 let db: admin.firestore.Firestore | null = null;
 
 try {
@@ -11,14 +13,19 @@ try {
     try {
       admin.initializeApp({
         credential: admin.credential.applicationDefault(),
+        projectId: 'viralhoods2026',
       });
     } catch {
-      admin.initializeApp();
+      admin.initializeApp({ projectId: 'viralhoods2026' });
     }
   }
-  db = admin.firestore();
+  db = getFirestore(admin.app(), FIRESTORE_DATABASE_ID);
 } catch (err: any) {
   console.warn('[Server] Note: Firebase Admin initialization deferred:', err?.message || err);
+}
+
+export function getFirestoreDb(): admin.firestore.Firestore | null {
+  return db;
 }
 
 const transporter = nodemailer.createTransport({
@@ -158,9 +165,11 @@ export async function sendNewsletterDigest() {
   let subscribers: any[] = [];
   if (db) {
     try {
-      const subscribersSnap = await db.collection('subscribers').get();
+      const snapPromise = db.collection('subscribers').get();
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
+      const subscribersSnap: any = await Promise.race([snapPromise, timeoutPromise]);
       subscribers = subscribersSnap.docs
-        .map((d) => d.data())
+        .map((d: any) => d.data())
         .filter((s: any) => s.email && s.email.includes('@'));
     } catch (_e) {
       // fallback

@@ -489,6 +489,12 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     fetchNews();
+
+    const handleStoriesUpdated = () => {
+      fetchNews();
+    };
+    window.addEventListener('viralhoods-stories-updated', handleStoriesUpdated);
+    return () => window.removeEventListener('viralhoods-stories-updated', handleStoriesUpdated);
   }, [fetchNews]);
 
   // Bookmark toggle

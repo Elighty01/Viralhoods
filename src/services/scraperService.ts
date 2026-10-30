@@ -76,17 +76,23 @@ export const DEFAULT_CATEGORY_IMAGES: Record<Category, string> = {
 };
 
 /**
- * Fetch raw XML text for an RSS feed using local server proxy first,
- * falling back to resilient public CORS proxies.
+ * Fetch raw XML text for an RSS or Atom feed using local server proxy first,
+ * falling back to resilient public CORS proxies with strict timeouts.
  */
 export async function fetchRssText(feedUrl: string): Promise<string> {
   const isXml = (text: string) =>
-    text && (text.includes('<rss') || text.includes('<xml') || text.includes('<feed') || text.includes('<channel'));
+    text &&
+    (text.includes('<rss') ||
+      text.includes('<xml') ||
+      text.includes('<feed') ||
+      text.includes('<channel') ||
+      text.includes('<entry') ||
+      text.includes('<item'));
 
   // 1. Try local Express proxy if running
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const resp = await fetch(`/api/scraper/proxy?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
@@ -99,42 +105,10 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
     // Local proxy not available or timed out (e.g. on live link / GitHub Pages)
   }
 
-  // 2. Try corsproxy.io (fast and high reliability)
+  // 2. Try AllOrigins raw endpoint (most reliable across browsers)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
-    const resp = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      const text = await resp.text();
-      if (isXml(text)) return text;
-    }
-  } catch {
-    // Fall through
-  }
-
-  // 3. Try CodeTabs public CORS proxy
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
-    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      const text = await resp.text();
-      if (isXml(text)) return text;
-    }
-  } catch {
-    // Fall through
-  }
-
-  // 4. Try AllOrigins raw endpoint
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
     const resp = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
@@ -147,10 +121,10 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
     // Fall through
   }
 
-  // 5. Try AllOrigins JSON get endpoint
+  // 3. Try AllOrigins JSON get endpoint
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+    const timeout = setTimeout(() => controller.abort(), 6500);
     const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
@@ -165,10 +139,42 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
     // Fall through
   }
 
-  // 6. Direct fetch (works for CORS-friendly feeds)
+  // 4. Try corsproxy.io
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const text = await resp.text();
+      if (isXml(text)) return text;
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 5. Try CodeTabs public CORS proxy
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const text = await resp.text();
+      if (isXml(text)) return text;
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 6. Direct fetch (works for CORS-friendly feeds)
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
     const resp = await fetch(feedUrl, { signal: controller.signal });
     clearTimeout(timeout);
     if (resp.ok) {
@@ -185,12 +191,15 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
 function cleanHtml(raw?: string | null): string {
   if (!raw) return '';
   return raw
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -206,7 +215,7 @@ function generateStoryId(prefix: string, title: string): string {
 }
 
 /**
- * Extracts and cleans raw story items from an RSS XML string.
+ * Extracts and cleans raw story items from an RSS XML or Atom string.
  */
 export function parseRssXmlToStories(
   xmlText: string,
@@ -216,7 +225,7 @@ export function parseRssXmlToStories(
 ): Partial<NewsItem>[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlText, 'text/xml');
-  const items = doc.querySelectorAll('item');
+  const items = doc.querySelectorAll('item, entry');
   const results: Partial<NewsItem>[] = [];
 
   const defaultImg = DEFAULT_CATEGORY_IMAGES[category] || DEFAULT_CATEGORY_IMAGES.World;
@@ -224,7 +233,7 @@ export function parseRssXmlToStories(
   for (let i = 0; i < items.length && results.length < limitCount; i++) {
     const item = items[i];
     const rawTitle = cleanHtml(item.querySelector('title')?.textContent);
-    if (!rawTitle || rawTitle.length < 10) continue;
+    if (!rawTitle || rawTitle.length < 8) continue;
 
     const desc = cleanHtml(
       item.querySelector('description')?.textContent ||
@@ -232,20 +241,30 @@ export function parseRssXmlToStories(
       item.querySelector('content')?.textContent
     );
 
-    const link = item.querySelector('link')?.textContent?.trim() || '#';
-    const pubDateStr = item.querySelector('pubDate')?.textContent?.trim();
+    // Atom uses <link href="..."/> while RSS uses <link>...</link>
+    const linkEl = item.querySelector('link');
+    const link =
+      linkEl?.getAttribute('href') ||
+      linkEl?.textContent?.trim() ||
+      item.querySelector('guid')?.textContent?.trim() ||
+      '#';
+
+    const pubDateStr =
+      item.querySelector('pubDate')?.textContent?.trim() ||
+      item.querySelector('published')?.textContent?.trim() ||
+      item.querySelector('updated')?.textContent?.trim();
     const date = pubDateStr ? new Date(pubDateStr).toISOString() : new Date().toISOString();
 
     // Source / Author
     const source =
       item.querySelector('source')?.textContent?.trim() ||
       item.querySelector('creator')?.textContent?.trim() ||
-      item.querySelector('author')?.textContent?.trim() ||
+      item.querySelector('author name, author')?.textContent?.trim() ||
       `Viralhoods ${category} Wire`;
 
     // Extract image
     let image = defaultImg;
-    const mediaContent = item.querySelector('media\\:content, content');
+    const mediaContent = item.querySelector('media\\:content, content[url], content');
     const mediaThumbnail = item.querySelector('media\\:thumbnail, thumbnail');
     const enclosure = item.querySelector('enclosure');
 
@@ -253,11 +272,11 @@ export function parseRssXmlToStories(
       image = mediaContent.getAttribute('url')!;
     } else if (mediaThumbnail?.getAttribute('url')) {
       image = mediaThumbnail.getAttribute('url')!;
-    } else if (enclosure?.getAttribute('url') && enclosure.getAttribute('type')?.includes('image')) {
+    } else if (enclosure?.getAttribute('url') && (enclosure.getAttribute('type')?.includes('image') || /\.(jpg|jpeg|png|webp|avif)/i.test(enclosure.getAttribute('url') || ''))) {
       image = enclosure.getAttribute('url')!;
     } else {
-      // Check for <img> in description
-      const descHtml = item.querySelector('description')?.textContent || '';
+      // Check for <img> in description or content
+      const descHtml = (item.querySelector('description')?.textContent || '') + ' ' + (item.querySelector('content')?.textContent || '');
       const imgMatch = descHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
       if (imgMatch && imgMatch[1]?.startsWith('http')) {
         image = imgMatch[1];
