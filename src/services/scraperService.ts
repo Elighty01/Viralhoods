@@ -8,42 +8,54 @@ export const RSS_FEEDS: Record<Category, string[]> = {
   World: [
     'https://feeds.bbci.co.uk/news/world/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en',
+    'https://www.aljazeera.com/xml/rss/all.xml',
+    'https://feeds.npr.org/1004/rss.xml',
+    'https://news.un.org/feed/subscribe/en/news/all/rss.xml',
   ],
   Politics: [
     'https://feeds.bbci.co.uk/news/politics/rss.xml',
     'https://news.google.com/rss/search?q=politics+legislation+policy&hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml',
   ],
   Finance: [
     'https://feeds.bbci.co.uk/news/business/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml',
   ],
   Health: [
     'https://feeds.bbci.co.uk/news/health/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/HEALTH?hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Health.xml',
   ],
   Entertainment: [
     'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Movies.xml',
   ],
   Research: [
     'https://news.google.com/rss/search?q=scientific+research+breakthrough&hl=en-US&gl=US&ceid=US:en',
     'https://phys.org/rss-feed/',
+    'https://www.sciencedaily.com/rss/top/science.xml',
   ],
   Science: [
     'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Science.xml',
   ],
   AI: [
     'https://news.google.com/rss/search?q=Artificial+Intelligence+machine+learning&hl=en-US&gl=US&ceid=US:en',
     'https://phys.org/rss-feed/technology-news/computer-sciences/',
+    'https://news.google.com/rss/search?q=LLM+neural+network+AI&hl=en-US&gl=US&ceid=US:en',
   ],
   Tech: [
     'https://feeds.bbci.co.uk/news/technology/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml',
   ],
   Sports: [
     'https://feeds.bbci.co.uk/sport/rss.xml',
     'https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en',
+    'https://rss.nytimes.com/services/xml/rss/nyt/Sports.xml',
   ],
 };
 
@@ -105,10 +117,38 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
     // Local proxy not available or timed out (e.g. on live link / GitHub Pages)
   }
 
-  // 2. Try AllOrigins raw endpoint (most reliable across browsers)
+  // 2. Try RSS2JSON API (Natively CORS-enabled worldwide, returns clean structured data)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 6000);
+    const resp = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feedUrl)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const json = await resp.json();
+      if (json?.status === 'ok' && Array.isArray(json.items) && json.items.length > 0) {
+        const itemsXml = json.items.map((it: any) => `
+          <item>
+            <title><![CDATA[${it.title || ''}]]></title>
+            <description><![CDATA[${it.description || it.content || ''}]]></description>
+            <link>${it.link || '#'}</link>
+            <pubDate>${it.pubDate || new Date().toISOString()}</pubDate>
+            <author><![CDATA[${it.author || ''}]]></author>
+            <enclosure url="${it.enclosure?.link || it.thumbnail || ''}" type="image/jpeg" />
+          </item>
+        `).join('\n');
+        return `<rss version="2.0"><channel><title>RSS</title>${itemsXml}</channel></rss>`;
+      }
+    }
+  } catch {
+    // Fall through
+  }
+
+  // 3. Try AllOrigins raw endpoint
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const resp = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
@@ -121,10 +161,10 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
     // Fall through
   }
 
-  // 3. Try AllOrigins JSON get endpoint
+  // 4. Try AllOrigins JSON get endpoint
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6500);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const resp = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(feedUrl)}`, {
       signal: controller.signal,
     });
@@ -139,39 +179,7 @@ export async function fetchRssText(feedUrl: string): Promise<string> {
     // Fall through
   }
 
-  // 4. Try corsproxy.io
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const resp = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      const text = await resp.text();
-      if (isXml(text)) return text;
-    }
-  } catch {
-    // Fall through
-  }
-
-  // 5. Try CodeTabs public CORS proxy
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const resp = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      const text = await resp.text();
-      if (isXml(text)) return text;
-    }
-  } catch {
-    // Fall through
-  }
-
-  // 6. Direct fetch (works for CORS-friendly feeds)
+  // 5. Direct fetch (works for CORS-friendly feeds)
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4000);
@@ -221,7 +229,7 @@ export function parseRssXmlToStories(
   xmlText: string,
   category: Category,
   subSector?: EntertainmentSubsector,
-  limitCount = 3
+  limitCount = 35
 ): Partial<NewsItem>[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlText, 'text/xml');
@@ -337,9 +345,10 @@ export interface ClientScrapeResult {
 
 /**
  * Runs a complete, live in-browser news scrape across all sectors or a specific category.
- * - Directly fetches RSS feeds with multi-proxy fallback
+ * - Deeply fetches RSS feeds with multi-proxy fallback (including RSS2JSON)
  * - Extracts images and preserves video links
- * - Paraphrases the full story into rich 5-paragraph investigative reporting
+ * - Paraphrases the full story maintaining ±10% word count parity of original source text
+ * - Guarantees stories are either added fresh or refreshed if already cached (never returns 0)
  * - Publishes directly to Cloud Firestore `stories` collection
  * - Updates local storage cache for immediate live rendering
  */
@@ -366,26 +375,30 @@ export async function runClientSideScraper(options: ClientScrapeOptions = {}): P
 
     const feeds = RSS_FEEDS[cat] || RSS_FEEDS.World;
     let addedForCategory = 0;
+    const candidatesToRefresh: Partial<NewsItem>[] = [];
 
     for (const feedUrl of feeds) {
       try {
         const xml = await fetchRssText(feedUrl);
-        const parsed = parseRssXmlToStories(xml, cat, undefined, targetCategory === 'ALL' ? 6 : 8);
+        const parsed = parseRssXmlToStories(xml, cat, undefined, 35);
 
         for (const item of parsed) {
           if (!item.title) continue;
           const cleanTitle = item.title.toLowerCase().trim();
           if (seenThisRun.has(cleanTitle)) continue;
 
-          // If already existing and not forceRefresh, only skip if we already added enough fresh ones
-          if (seenTitles.has(cleanTitle) && !forceRefresh && addedForCategory >= 2) {
-            continue;
+          // If already in catalog, keep in pool for refreshing
+          if (seenTitles.has(cleanTitle)) {
+            if (candidatesToRefresh.length < 5) {
+              candidatesToRefresh.push(item);
+            }
+            if (!forceRefresh) continue;
           }
 
           seenThisRun.add(cleanTitle);
           seenTitles.add(cleanTitle);
 
-          // Enrich with comprehensive 5-paragraph paraphrasing and video link retention
+          // Enrich with comprehensive paraphrasing strictly adhering to +/-10% word count parity
           const fullStory = enrichStoryWithFullContent(item as NewsItem);
           scrapedStories.push(fullStory);
           addedForCategory++;
@@ -403,10 +416,64 @@ export async function runClientSideScraper(options: ClientScrapeOptions = {}): P
           if (addedForCategory >= (targetCategory === 'ALL' ? 3 : 5)) break;
         }
 
-        if (addedForCategory > 0) break;
+        if (addedForCategory >= (targetCategory === 'ALL' ? 3 : 5)) break;
       } catch (err) {
         console.warn(`[ClientScraper] Feed notice for ${cat} (${feedUrl}):`, err);
       }
+    }
+
+    // If all feed stories already exist in the catalog (zero fresh stories found),
+    // REFRESH the top candidate stories so the scraper NEVER returns 0 stories!
+    if (addedForCategory === 0 && candidatesToRefresh.length > 0) {
+      const refreshLimit = targetCategory === 'ALL' ? 2 : 4;
+      for (const item of candidatesToRefresh.slice(0, refreshLimit)) {
+        if (!item.title) continue;
+        const refreshedStory = enrichStoryWithFullContent({
+          ...(item as NewsItem),
+          date: new Date().toISOString(), // Refresh date
+        });
+        scrapedStories.push(refreshedStory);
+        addedForCategory++;
+
+        try {
+          await setDoc(doc(db, 'stories', refreshedStory.id), refreshedStory, { merge: true });
+        } catch (fsErr) {
+          console.warn(`[ClientScraper] Firestore refresh sync note for ${refreshedStory.id}:`, fsErr);
+        }
+        saveCustomStory(refreshedStory);
+      }
+      console.log(`[ClientScraper] Refreshed ${addedForCategory} stories for ${cat} with updated analysis.`);
+    }
+  }
+
+  // Fallback: If browser network completely blocked feed fetching, call local backend trigger
+  if (scrapedStories.length === 0) {
+    try {
+      onProgress?.('Syncing via server-side scraper engine...', totalSteps, totalSteps);
+      const serverResp = await fetch('/api/scraper/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: targetCategory }),
+      });
+      if (serverResp.ok) {
+        const serverData = await serverResp.json();
+        if (Array.isArray(serverData?.items) && serverData.items.length > 0) {
+          const matching = targetCategory === 'ALL'
+            ? serverData.items.slice(0, 10)
+            : serverData.items.filter((i: any) => i.category === targetCategory).slice(0, 5);
+          for (const s of matching) {
+            scrapedStories.push(s);
+            saveCustomStory(s);
+            try {
+              await setDoc(doc(db, 'stories', s.id), s, { merge: true });
+            } catch {
+              // non-fatal
+            }
+          }
+        }
+      }
+    } catch {
+      // Non-blocking
     }
   }
 

@@ -27,38 +27,46 @@ export function extractVideoUrl(item: Partial<NewsItem>): string | undefined {
   return undefined;
 }
 
+import { countWords, getWordCountBounds, calibrateParagraphsToWordCount } from './wordCount';
+
 /**
  * Ensures any story item has full, comprehensive, in-depth paraphrased reporting,
  * key takeaways, and analysis, completely paraphrased and owned by Viralhoods
- * with video links preserved if present.
+ * with video links preserved if present and original word count strictly
+ * maintained within ±10%.
  */
 export const enrichStoryWithFullContent = (rawItem: NewsItem): NewsItem => {
   const item = sanitizeNewsItem(rawItem);
   const detectedVideo = extractVideoUrl(item);
+  const title = sanitizeHtmlText(item.title || '');
+  const cleanSummary = sanitizeHtmlText(item.summary || '');
+  const originalTitle = sanitizeHtmlText(item.originalTitle || title);
+  const videoUrl = item.videoUrl || detectedVideo;
 
-  // If already has 4+ rich paragraphs and 250+ words, just make sure video is assigned
-  const totalWords = (item.content || []).join(' ').split(/\s+/).filter(Boolean).length;
-  const isAlreadyLong =
+  // Determine original source text and calculate strict +/- 10% target word count bounds
+  const rawSourceText = [originalTitle, cleanSummary].join(' ').trim();
+  const { originalCount, minWords, maxWords } = getWordCountBounds(rawSourceText, 180);
+
+  // If already has rich paragraphs and within +/- 10% of target bounds, preserve
+  const existingWords = countWords((item.content || []).join(' '));
+  const isAlreadyLongAndAccurate =
     item.content &&
-    item.content.length >= 4 &&
-    totalWords >= 240 &&
+    item.content.length >= 3 &&
+    existingWords >= minWords &&
+    existingWords <= maxWords &&
     item.keyTakeaways &&
     item.keyTakeaways.length >= 3;
 
-  if (isAlreadyLong) {
+  if (isAlreadyLongAndAccurate) {
     return {
       ...item,
-      videoUrl: item.videoUrl || detectedVideo,
-      hasVideo: Boolean(item.videoUrl || detectedVideo),
+      videoUrl,
+      hasVideo: Boolean(videoUrl),
     };
   }
 
   const category = item.category || 'World';
   const categoryDesk = item.author || `Viralhoods ${category} Desk`;
-  const cleanSummary = sanitizeHtmlText(item.summary || '');
-  const title = sanitizeHtmlText(item.title || '');
-  const originalTitle = sanitizeHtmlText(item.originalTitle || title);
-  const videoUrl = item.videoUrl || detectedVideo;
 
   // Synthesize comprehensive executive takeaways (3-4 points)
   const keyTakeaways = [
@@ -81,7 +89,14 @@ export const enrichStoryWithFullContent = (rawItem: NewsItem): NewsItem => {
 
   const p5 = `Looking ahead, follow-on announcements are slated to clarify long-term commitments and implementation timelines. Viralhoods will continue to track incoming developments, synthesize verified updates, and provide continuous, context-rich journalism for our global readership.`;
 
-  const contentParagraphs = [p1, p2, p3, p4, p5];
+  // Strict enforcement: Calibrate combined content paragraphs within [minWords, maxWords] (±10% of source)
+  const baseParagraphs = item.content && item.content.length >= 2 ? item.content : [p1, p2, p3, p4, p5];
+  const contentParagraphs = calibrateParagraphsToWordCount(
+    baseParagraphs,
+    minWords,
+    maxWords,
+    cleanSummary
+  );
 
   const whyItMatters =
     item.whyItMatters && item.whyItMatters.length > 60
@@ -94,8 +109,8 @@ export const enrichStoryWithFullContent = (rawItem: NewsItem): NewsItem => {
       : `Expect formal follow-up communiqués, oversight evaluations, and multilateral policy responses to emerge over the coming days, with verified updates integrated into ongoing Viralhoods sector coverage.`;
 
   // Estimate read time based on word count
-  const allWords = contentParagraphs.join(' ').split(/\s+/).filter(Boolean).length + cleanSummary.split(/\s+/).filter(Boolean).length;
-  const readMinutes = Math.max(3, Math.round(allWords / 180));
+  const allWords = countWords(contentParagraphs.join(' '));
+  const readMinutes = Math.max(2, Math.round(allWords / 180));
 
   return {
     ...item,

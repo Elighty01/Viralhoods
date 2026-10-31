@@ -119,6 +119,7 @@ export async function sendBrevoEmail(params: SendBrevoEmailParams): Promise<Brev
         htmlContent: params.htmlContent,
         ...(params.replyTo ? { replyTo: params.replyTo } : {}),
       }),
+      signal: AbortSignal.timeout(4000),
     });
 
     const data = await res.json().catch(() => ({}));
